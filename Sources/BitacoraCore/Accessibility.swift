@@ -62,8 +62,7 @@ public struct AccessibilityReader: Sendable {
             maxNodes: maxNodes, maxDepth: maxDepth, maxCharacters: maxCharacters,
             deadline: Date().addingTimeInterval(timeBudget)
         )
-        let root = AXNode(element: window)
-        return walker.collectText(from: walker.contentRoot(of: root))
+        return walker.readContent(of: AXNode(element: window))
     }
 
     // MARK: - AX helpers
@@ -126,21 +125,37 @@ struct TextTreeWalker {
     var maxCharacters: Int
     var deadline: Date
 
-    /// The outermost web area (the page in a browser or Electron app), or the window itself.
-    func contentRoot<N: TextTreeNode>(of window: N) -> N {
+    /// Text of the window's web pages when it has any (browsers, Electron apps), skipping tabs and
+    /// toolbars; otherwise, or when every page is empty, the text of the whole window.
+    func readContent<N: TextTreeNode>(of window: N) -> String {
+        let pages = webAreas(in: window)
+        if !pages.isEmpty {
+            let text = collectText(from: pages)
+            if !text.isEmpty { return text }
+        }
+        return collectText(from: [window])
+    }
+
+    /// Outermost web areas, in breadth-first order. Apps like Claude or Slack host several
+    /// (some empty), so all of them are returned rather than just the first.
+    func webAreas<N: TextTreeNode>(in window: N) -> [N] {
         var queue: [(node: N, depth: Int)] = [(window, 0)]
         var head = 0
+        var found: [N] = []
         while head < queue.count, head < maxNodes, Date() < deadline {
             let (node, depth) = queue[head]
             head += 1
-            if node.role == Self.webAreaRole { return node }
+            if node.role == Self.webAreaRole {
+                found.append(node)
+                continue
+            }
             if depth < maxDepth { queue.append(contentsOf: node.children.map { ($0, depth + 1) }) }
         }
-        return window
+        return found
     }
 
-    func collectText<N: TextTreeNode>(from root: N) -> String {
-        var queue: [(node: N, depth: Int)] = [(root, 0)]
+    func collectText<N: TextTreeNode>(from roots: [N]) -> String {
+        var queue: [(node: N, depth: Int)] = roots.map { ($0, 0) }
         var head = 0
         var seen = Set<String>()
         var pieces: [String] = []

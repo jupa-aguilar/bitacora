@@ -76,7 +76,7 @@ final class TextTreeWalkerTests: XCTestCase {
     ])
 
     func testBrowserReadsOnlyThePage() {
-        let text = walker.collectText(from: walker.contentRoot(of: chromeWindow))
+        let text = walker.readContent(of: chromeWindow)
         XCTAssertTrue(text.contains("Un índice compuesto conviene"))
         XCTAssertFalse(text.contains("Gmail - asunto privado"), "other tabs must not leak into the text")
         XCTAssertFalse(text.contains("Address and search bar"))
@@ -84,7 +84,7 @@ final class TextTreeWalkerTests: XCTestCase {
     }
 
     func testPasswordFieldsAreNeverRead() {
-        XCTAssertFalse(walker.collectText(from: walker.contentRoot(of: chromeWindow)).contains("contraseña123"))
+        XCTAssertFalse(walker.readContent(of: chromeWindow).contains("contraseña123"))
     }
 
     func testNativeAppsReadTheWholeWindow() {
@@ -92,11 +92,32 @@ final class TextTreeWalkerTests: XCTestCase {
             FakeNode("AXOutline", ["Carpetas"]),
             FakeNode("AXTextArea", ["Lista de compras"]),
         ])
-        XCTAssertEqual(walker.collectText(from: walker.contentRoot(of: notes)), "Notas\nCarpetas\nLista de compras")
+        XCTAssertEqual(walker.readContent(of: notes), "Notas\nCarpetas\nLista de compras")
+    }
+
+    /// Shaped like the Claude desktop app: an empty web view found first, the chat in another one.
+    func testAppsWithSeveralWebAreasReadAllOfThem() {
+        let claude = FakeNode("AXWindow", ["Claude"], [
+            FakeNode("AXGroup", [], [FakeNode("AXWebArea", [], [FakeNode("AXGroup")])]),
+            FakeNode("AXGroup", [], [
+                FakeNode("AXGroup", [], [
+                    FakeNode("AXWebArea", [], [FakeNode("AXStaticText", ["¿Cómo funciona Bitácora?"])]),
+                ]),
+            ]),
+        ])
+        XCTAssertEqual(walker.readContent(of: claude), "¿Cómo funciona Bitácora?")
+    }
+
+    func testEmptyWebAreasFallBackToTheWholeWindow() {
+        let loading = FakeNode("AXWindow", ["Cargando…"], [
+            FakeNode("AXButton", ["Recargar"]),
+            FakeNode("AXWebArea", [], []),
+        ])
+        XCTAssertEqual(walker.readContent(of: loading), "Cargando…\nRecargar")
     }
 
     func testRepeatedStringsAppearOnce() {
         let window = FakeNode("AXWindow", [], [FakeNode("AXStaticText", ["Guardar"]), FakeNode("AXButton", ["Guardar"])])
-        XCTAssertEqual(walker.collectText(from: window), "Guardar")
+        XCTAssertEqual(walker.collectText(from: [window]), "Guardar")
     }
 }

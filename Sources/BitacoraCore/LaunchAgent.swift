@@ -50,13 +50,32 @@ public struct LaunchAgent: Sendable {
         try FileManager.default.createDirectory(at: Self.plistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try PropertyListSerialization.data(fromPropertyList: propertyList(), format: .xml, options: 0)
         try data.write(to: Self.plistURL, options: .atomic)
-        if Self.isLoaded { _ = try Self.launchctl(["bootout", "\(Self.domain)/\(Self.label)"]) }
-        let result = try Self.launchctl(["bootstrap", Self.domain, Self.plistURL.path])
+        if Self.isLoaded {
+            _ = try Self.launchctl(["bootout", "\(Self.domain)/\(Self.label)"])
+            Self.waitUntilUnloaded()
+        }
+        var result = try Self.launchctl(["bootstrap", Self.domain, Self.plistURL.path])
+        if result.status != 0 {
+            // launchd may still be tearing down the previous instance ("Input/output error").
+            Thread.sleep(forTimeInterval: 1.5)
+            result = try Self.launchctl(["bootstrap", Self.domain, Self.plistURL.path])
+        }
         guard result.status == 0 else { throw LaunchAgentError.launchctl(result.output) }
     }
 
+    /// `bootout` returns before launchd has fully removed the job; bootstrapping too early fails.
+    static func waitUntilUnloaded(timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while isLoaded, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+    }
+
     public static func uninstall() throws {
-        if isLoaded { _ = try launchctl(["bootout", "\(domain)/\(label)"]) }
+        if isLoaded {
+            _ = try launchctl(["bootout", "\(domain)/\(label)"])
+            waitUntilUnloaded()
+        }
         if FileManager.default.fileExists(atPath: plistURL.path) {
             try FileManager.default.removeItem(at: plistURL)
         }
