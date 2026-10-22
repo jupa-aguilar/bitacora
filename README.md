@@ -71,6 +71,7 @@ bitacora search <texto> [--app Safari] [--limit 50]
 bitacora stats
 bitacora serve                          # sólo la API
 bitacora doctor [--request]
+bitacora mcp                            # servidor MCP (lo lanza tu asistente)
 ```
 
 ### API local (`http://127.0.0.1:3939`)
@@ -81,6 +82,34 @@ bitacora doctor [--request]
 | `GET /search?q=&app=&from=&to=&limit=` | resultados con fragmento resaltado (`from` y `to` en epoch) |
 | `GET /frames/<id>` | metadatos y texto completo |
 | `GET /frames/<id>/image` | la captura en JPEG |
+
+### Servidor MCP para asistentes de IA
+
+`bitacora mcp` habla el [Model Context Protocol](https://modelcontextprotocol.io) por stdio, así que Claude u otro asistente compatible puede consultar tu historial cuando le preguntás algo como "¿qué leía ayer sobre índices?".
+
+| Herramienta | Qué hace |
+|---|---|
+| `buscar` | texto, app y período (ISO 8601); con texto vacío lista lo más reciente |
+| `ver_cuadro` | texto completo de un cuadro y, si se pide, la captura |
+| `estadisticas` | cantidad de cuadros, última captura y apps más registradas |
+
+Es de sólo lectura: no captura, no edita y no borra. El asistente recibe únicamente lo que devuelve cada consulta.
+
+Claude Code:
+
+```bash
+claude mcp add --scope user bitacora -- ~/.local/bin/bitacora mcp
+```
+
+Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "bitacora": { "command": "/Users/<tu-usuario>/.local/bin/bitacora", "args": ["mcp"] }
+  }
+}
+```
 
 ## Configuración
 
@@ -104,6 +133,7 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 | `TextExtraction.swift` | OCR con Vision y elección de la fuente de texto |
 | `Storage.swift` | SQLite + FTS5 |
 | `APIServer.swift` | HTTP de sólo lectura en loopback |
+| `MCPServer.swift` | servidor MCP (JSON-RPC por stdio) |
 
 ## Hoja de ruta
 
@@ -111,7 +141,7 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 - [ ] Retención automática (borrar cuadros viejos)
 - [ ] Audio y transcripción local
 - [ ] Interfaz de línea de tiempo
-- [ ] Servidor MCP para que asistentes de IA consulten tu historial
+- [x] Servidor MCP para que asistentes de IA consulten tu historial
 - [ ] Agente de inicio de sesión (`launchd`)
 
 ## Licencia

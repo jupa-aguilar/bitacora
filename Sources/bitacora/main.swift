@@ -11,6 +11,7 @@ let usage = """
       bitacora capture                        Guarda un cuadro ahora mismo
       bitacora stats                          Resumen de lo grabado
       bitacora doctor [--request]             Revisa (o pide) los permisos de macOS
+      bitacora mcp                            Servidor MCP por stdio para asistentes de IA
 
     Datos en ~/.bitacora (o $BITACORA_HOME). Configuración opcional: ~/.bitacora/config.json
     """
@@ -184,6 +185,17 @@ func run() async {
 
     case "doctor":
         doctor(paths: paths, request: args.flags.contains("request"))
+        exit(0)
+
+    case "mcp":
+        // stdout carries only protocol messages; everything else goes to stderr.
+        let server = MCPServer(storage: openStorage(paths))
+        while let line = readLine() {
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
+            if let response = server.handle(line) {
+                FileHandle.standardOutput.write(Data((response + "\n").utf8))
+            }
+        }
         exit(0)
 
     case nil, "help":
