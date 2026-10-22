@@ -59,6 +59,14 @@ bitacora doctor --request   # pide los permisos
 
 `scripts/install.sh` también sirve para actualizar: reemplaza el binario sin cortar una grabación en curso y reinicia el arranque automático si está activo. Si tenés un certificado **Apple Development** (gratis: Xcode → Ajustes → Cuentas → Administrar certificados → **+**), el script firma con él, y macOS conserva los permisos entre versiones. Sin certificado se firma ad hoc y macOS puede pedirlos de nuevo tras cada actualización.
 
+Sin cuenta de Apple también sirve un certificado local de firma llamado `Bitacora Local Signing` en el llavero de inicio de sesión: el script lo usa si no encuentra uno de Apple. macOS tiene que confiar en él para firmar código, si no, niega los permisos aunque estén activados (error `-3801`):
+
+```bash
+security find-certificate -c "Bitacora Local Signing" -p > /tmp/bitacora-cert.pem && security add-trusted-cert -p codeSign -k ~/Library/Keychains/login.keychain-db /tmp/bitacora-cert.pem && rm /tmp/bitacora-cert.pem
+```
+
+Si otorgaste los permisos antes de confiar en el certificado, quitá «bitacora» de Grabación de pantalla y Accesibilidad y agregalo de nuevo.
+
 macOS otorga los permisos a la app que ejecuta `bitacora` (Terminal, iTerm…):
 
 - **Grabación de pantalla** (obligatorio): para las capturas.

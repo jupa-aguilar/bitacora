@@ -51,7 +51,7 @@ public final class MCPServer {
         return [
             "protocolVersion": version,
             "capabilities": ["tools": [:] as [String: Any]],
-            "serverInfo": ["name": "bitacora", "version": "0.2.0"],
+            "serverInfo": ["name": "bitacora", "version": "0.3.0"],
             "instructions": """
                 Bitácora guarda capturas de la pantalla del usuario (macOS) con el texto visible, la app, \
                 el título de la ventana y la hora. Usá `buscar` para encontrar lo que el usuario vio o \
