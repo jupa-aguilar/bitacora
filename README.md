@@ -53,10 +53,11 @@ Requiere macOS 14 o superior y Xcode o las Command Line Tools (Swift 6).
 
 ```bash
 git clone <tu-repo>/bitacora && cd bitacora
-swift build -c release
-cp .build/release/bitacora /usr/local/bin/
+scripts/install.sh          # compila, firma e instala en ~/.local/bin
 bitacora doctor --request   # pide los permisos
 ```
+
+`scripts/install.sh` también sirve para actualizar: reemplaza el binario sin cortar una grabación en curso y reinicia el arranque automático si está activo. Si tenés un certificado **Apple Development** (gratis: Xcode → Ajustes → Cuentas → Administrar certificados → **+**), el script firma con él, y macOS conserva los permisos entre versiones. Sin certificado se firma ad hoc y macOS puede pedirlos de nuevo tras cada actualización.
 
 macOS otorga los permisos a la app que ejecuta `bitacora` (Terminal, iTerm…):
 
@@ -87,7 +88,7 @@ Con launchd, macOS otorga los permisos al binario `bitacora`, no a Terminal. La 
 2. Activalos en Ajustes → Privacidad y seguridad.
 3. `bitacora install` de nuevo para que arranque con los permisos.
 
-El binario se firma ad hoc, así que al instalar una versión nueva macOS puede pedir los permisos otra vez: repetí los pasos 2 y 3.
+Si instalás con `scripts/install.sh` y un certificado Apple Development, los permisos se conservan entre versiones. Con firma ad hoc macOS puede pedirlos otra vez: repetí los pasos 2 y 3.
 
 ### Retención
 
