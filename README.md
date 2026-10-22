@@ -1,5 +1,7 @@
 # Bitácora
 
+[![Tests](https://github.com/jupa-aguilar/bitacora/actions/workflows/tests.yml/badge.svg)](https://github.com/jupa-aguilar/bitacora/actions/workflows/tests.yml)
+
 **Tu bitácora de pantalla: local, privada y open source.**
 
 Bitácora registra lo que aparece en tu pantalla y lo convierte en texto que podés buscar. Todo se procesa en tu Mac: nada sale de tu computadora.
@@ -52,7 +54,7 @@ eventos ─► cola de disparadores ─► el de mayor prioridad ─► antirreb
 Requiere macOS 14 o superior y Xcode o las Command Line Tools (Swift 6).
 
 ```bash
-git clone <tu-repo>/bitacora && cd bitacora
+git clone https://github.com/jupa-aguilar/bitacora.git && cd bitacora
 scripts/install.sh          # compila, firma e instala en ~/.local/bin
 bitacora doctor --request   # pide los permisos
 ```
