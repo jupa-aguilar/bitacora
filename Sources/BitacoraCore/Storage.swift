@@ -186,15 +186,28 @@ public final class Storage: @unchecked Sendable {
 
     // MARK: - Reads
 
+    /// Individual frames, best match first (or most recent first for an empty query).
     public func search(_ query: SearchQuery) throws -> [FrameRecord] {
+        try searchRows(query, limit: query.limit).map(\.record)
+    }
+
+    /// Results collapsed by moment (see `ResultGrouper`): up to `query.limit` groups, best first.
+    public func searchGrouped(_ query: SearchQuery) throws -> [SearchGroup] {
+        let limit = max(1, min(query.limit, 500))
+        // Fetch extra frames so that collapsing near-duplicates still leaves `limit` groups.
+        let candidates = try searchRows(query, limit: min(500, limit * 10))
+        return ResultGrouper.group(candidates, limit: limit)
+    }
+
+    private func searchRows(_ query: SearchQuery, limit requested: Int) throws -> [(record: FrameRecord, fullText: String)] {
         try locked {
-            let limit = max(1, min(query.limit, 500))
+            let limit = max(1, min(requested, 500))
             let statement: OpaquePointer?
             if let expression = SearchQuery.ftsExpression(from: query.text) {
                 statement = try prepare("""
                     SELECT f.id, f.captured_at, f.trigger, f.app_name, f.bundle_id, f.window_title, f.url,
                            f.text_source, f.image_path, f.visual_difference,
-                           snippet(frames_fts, 0, '«', '»', '…', 16)
+                           snippet(frames_fts, 0, '«', '»', '…', 16), f.text
                     FROM frames_fts JOIN frames f ON f.id = frames_fts.rowid
                     WHERE frames_fts MATCH ?1
                       AND (?2 IS NULL OR f.app_name = ?2 COLLATE NOCASE)
@@ -207,7 +220,7 @@ public final class Storage: @unchecked Sendable {
             } else {
                 statement = try prepare("""
                     SELECT id, captured_at, trigger, app_name, bundle_id, window_title, url,
-                           text_source, image_path, visual_difference, substr(text, 1, 200)
+                           text_source, image_path, visual_difference, substr(text, 1, 200), text
                     FROM frames
                     WHERE (?2 IS NULL OR app_name = ?2 COLLATE NOCASE)
                       AND (?3 IS NULL OR captured_at >= ?3)
@@ -221,12 +234,12 @@ public final class Storage: @unchecked Sendable {
             bind(statement, 3, query.from?.timeIntervalSince1970)
             bind(statement, 4, query.to?.timeIntervalSince1970)
             sqlite3_bind_int64(statement, 5, Int64(limit))
-            var results: [FrameRecord] = []
+            var results: [(FrameRecord, String)] = []
             while true {
                 let rc = sqlite3_step(statement)
                 if rc == SQLITE_DONE { break }
                 guard rc == SQLITE_ROW else { throw lastError() }
-                results.append(readRecord(statement))
+                results.append((readRecord(statement), columnString(statement, 11) ?? ""))
             }
             return results
         }

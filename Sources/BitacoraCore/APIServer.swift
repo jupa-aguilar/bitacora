@@ -108,7 +108,7 @@ public final class APIServer: @unchecked Sendable {
                     to: query["to"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)),
                     limit: query["limit"].flatMap(Int.init) ?? 20
                 )
-                return try .json(storage.search(search))
+                return try .json(storage.searchGrouped(search))
             case "frames":
                 guard segments.count >= 2, let id = Int64(segments[1]) else { return .error(400, "invalid frame id") }
                 guard let frame = try storage.frame(id: id) else { return .error(404, "frame not found") }

@@ -136,14 +136,19 @@ public final class MCPServer {
         let to = try date(arguments, "hasta", endOfDayIfDateOnly: true)
         let limit = min(50, max(1, (arguments["limite"] as? NSNumber)?.intValue ?? 10))
 
-        let results = try storage.search(SearchQuery(text: text, app: app, from: from, to: to, limit: limit))
-        if results.isEmpty {
+        let groups = try storage.searchGrouped(SearchQuery(text: text, app: app, from: from, to: to, limit: limit))
+        if groups.isEmpty {
             return "Sin resultados" + (text.isEmpty ? " en ese período." : " para «\(text)».")
         }
-        var lines = ["\(results.count) resultado(s). Horas en \(timeZone.identifier)."]
-        for record in results {
+        var lines = ["\(groups.count) resultado(s). Horas en \(timeZone.identifier)."]
+        for group in groups {
+            let record = group.frame
             lines.append("")
             lines.append(header(for: record))
+            if group.frameCount > 1 {
+                let ids = group.frameIds.map { "#\($0)" }.joined(separator: ", ")
+                lines.append("\(group.frameCount) cuadros parecidos entre \(format(group.firstCapturedAt)) y \(format(group.lastCapturedAt)): \(ids)")
+            }
             if let url = record.url { lines.append("url: \(url)") }
             let excerpt = record.text.replacingOccurrences(of: "\n", with: " ")
             if !excerpt.isEmpty { lines.append(excerpt) }

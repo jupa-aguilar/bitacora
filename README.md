@@ -116,7 +116,7 @@ Para que el disco no crezca sin límite, cada hora (y con `bitacora clean`) se a
 | Ruta | Respuesta |
 |---|---|
 | `GET /health` | estado y cantidad de cuadros |
-| `GET /search?q=&app=&from=&to=&limit=` | resultados con fragmento resaltado (`from` y `to` en epoch) |
+| `GET /search?q=&app=&from=&to=&limit=` | resultados agrupados por momento, con fragmento resaltado (`from` y `to` en epoch) |
 | `GET /frames/<id>` | metadatos y texto completo |
 | `GET /frames/<id>/image` | la captura en JPEG |
 

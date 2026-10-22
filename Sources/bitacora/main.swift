@@ -73,11 +73,22 @@ let dateFormatter: DateFormatter = {
     return formatter
 }()
 
-func printFrame(_ frame: FrameRecord) {
+let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .none
+    formatter.timeStyle = .medium
+    return formatter
+}()
+
+func printFrame(_ frame: FrameRecord, group: SearchGroup? = nil) {
     let when = dateFormatter.string(from: frame.capturedAt)
     let app = frame.appName ?? "?"
     let title = frame.windowTitle.map { " — \($0)" } ?? ""
     print("#\(frame.id)  \(when)  [\(frame.trigger)]  \(app)\(title)")
+    if let group, group.frameCount > 1 {
+        let range = "\(timeFormatter.string(from: group.firstCapturedAt))–\(timeFormatter.string(from: group.lastCapturedAt))"
+        print("    (\(group.frameCount) cuadros parecidos, \(range))")
+    }
     let excerpt = frame.text.replacingOccurrences(of: "\n", with: " ")
     if !excerpt.isEmpty { print("    \(excerpt.prefix(300))") }
 }
@@ -158,13 +169,13 @@ func run() async {
         let text = args.positional.dropFirst().joined(separator: " ")
         let storage = openStorage(paths)
         do {
-            let results = try storage.search(SearchQuery(
+            let groups = try storage.searchGrouped(SearchQuery(
                 text: text,
                 app: args.options["app"],
                 limit: args.options["limit"].flatMap(Int.init) ?? 20
             ))
-            if results.isEmpty { print("Sin resultados.") }
-            results.forEach(printFrame)
+            if groups.isEmpty { print("Sin resultados.") }
+            for group in groups { printFrame(group.frame, group: group) }
         } catch {
             fail("\(error)")
         }
