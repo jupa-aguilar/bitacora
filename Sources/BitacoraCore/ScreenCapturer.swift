@@ -25,6 +25,19 @@ public struct ScreenCapturer: Sendable {
     @discardableResult
     public static func requestPermission() -> Bool { CGRequestScreenCaptureAccess() }
 
+    /// The preflight check can report "denied" for command-line tools that are in fact allowed,
+    /// so a negative answer is confirmed with a real ScreenCaptureKit request. Returns nil when
+    /// capturing works, or macOS's error otherwise.
+    public static func verifyAccess() async -> String? {
+        if hasPermission { return nil }
+        do {
+            _ = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            return nil
+        } catch {
+            return "\(error.localizedDescription) [\((error as NSError).domain) \((error as NSError).code)]"
+        }
+    }
+
     public func captureMainDisplay() async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let mainID = CGMainDisplayID()

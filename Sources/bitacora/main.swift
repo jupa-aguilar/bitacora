@@ -115,13 +115,13 @@ func run() async {
     switch args.positional.first {
     case "record":
         let underLaunchd = LaunchAgent.isRunningUnderLaunchd
-        guard ScreenCapturer.hasPermission else {
+        if let denial = await ScreenCapturer.verifyAccess() {
             if underLaunchd {
                 // Nobody sees a terminal here: let macOS show its prompts, then exit cleanly so
                 // launchd does not retry in a loop.
                 ScreenCapturer.requestPermission()
                 AccessibilityReader.requestTrust()
-                Log.info("falta el permiso de Grabación de pantalla para \(executableURL.path). Activalo en Ajustes → Privacidad y seguridad → Grabación de pantalla y después corré `bitacora install`.")
+                Log.info("falta el permiso de Grabación de pantalla para \(executableURL.path) (\(denial)). Activalo en Ajustes → Privacidad y seguridad → Grabación de pantalla y después corré `bitacora install`.")
                 exit(0)
             }
             doctor(paths: paths, request: true)
