@@ -1,0 +1,16 @@
+{
+  "minCaptureInterval": 2.0,
+  "idleCaptureInterval": 300,
+  "visualCheckInterval": 3.0,
+  "visualChangeThreshold": 0.05,
+  "duplicateThreshold": 0.01,
+  "typingPauseDelay": 1.5,
+  "scrollStopDelay": 0.8,
+  "minAccessibilityChars": 100,
+  "ocrLanguages": ["es-ES", "en-US"],
+  "snapshotMaxWidth": 1920,
+  "jpegQuality": 0.6,
+  "excludedBundleIDs": ["com.apple.keychainaccess", "com.1password.1password"],
+  "excludedTitleKeywords": ["incognito", "incógnito", "navegación privada"],
+  "port": 3939
+}
