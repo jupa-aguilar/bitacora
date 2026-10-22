@@ -55,35 +55,15 @@ public struct AccessibilityReader: Sendable {
     }
 
     /// Visible text of the frontmost app's focused window, top to bottom, without exact duplicates.
+    /// In browsers and web-based apps only the page is read, not tabs, toolbars or extensions.
     public func readText(pid: pid_t) -> String {
         guard let window = focusedWindow(pid: pid) else { return "" }
-        let deadline = Date().addingTimeInterval(timeBudget)
-        var queue: [(element: AXUIElement, depth: Int)] = [(window, 0)]
-        var head = 0
-        var seen = Set<String>()
-        var pieces: [String] = []
-        var characters = 0
-
-        while head < queue.count, head < maxNodes, characters < maxCharacters, Date() < deadline {
-            let (element, depth) = queue[head]
-            head += 1
-
-            if string(element, kAXSubroleAttribute) == kAXSecureTextFieldSubrole { continue }
-
-            for attribute in [kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute] {
-                guard let raw = string(element, attribute) else { continue }
-                let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty, seen.insert(text).inserted else { continue }
-                let clipped = String(text.prefix(5_000))
-                pieces.append(clipped)
-                characters += clipped.count
-            }
-
-            if depth < maxDepth, let children: [AXUIElement] = value(element, kAXChildrenAttribute) {
-                queue.append(contentsOf: children.map { ($0, depth + 1) })
-            }
-        }
-        return pieces.joined(separator: "\n")
+        let walker = TextTreeWalker(
+            maxNodes: maxNodes, maxDepth: maxDepth, maxCharacters: maxCharacters,
+            deadline: Date().addingTimeInterval(timeBudget)
+        )
+        let root = AXNode(element: window)
+        return walker.collectText(from: walker.contentRoot(of: root))
     }
 
     // MARK: - AX helpers
@@ -98,16 +78,91 @@ public struct AccessibilityReader: Sendable {
         return (raw as! AXUIElement)
     }
 
-    private func value<T>(_ element: AXUIElement, _ attribute: String) -> T? {
-        var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else { return nil }
-        return raw as? T
+    private func string(_ element: AXUIElement, _ attribute: String) -> String? {
+        axString(element, attribute)
+    }
+}
+
+private func axValue<T>(_ element: AXUIElement, _ attribute: String) -> T? {
+    var raw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else { return nil }
+    return raw as? T
+}
+
+private func axString(_ element: AXUIElement, _ attribute: String) -> String? {
+    if let text: String = axValue(element, attribute) { return text }
+    if let url: URL = axValue(element, attribute) { return url.absoluteString }
+    return nil
+}
+
+/// The parts of an accessibility element the text walker needs; lets tests use a fake tree.
+protocol TextTreeNode {
+    var role: String? { get }
+    var subrole: String? { get }
+    /// Title, value and description, in that order, when present.
+    var texts: [String] { get }
+    var children: [Self] { get }
+}
+
+struct AXNode: TextTreeNode {
+    let element: AXUIElement
+
+    var role: String? { axString(element, kAXRoleAttribute) }
+    var subrole: String? { axString(element, kAXSubroleAttribute) }
+    var texts: [String] {
+        [kAXTitleAttribute, kAXValueAttribute, kAXDescriptionAttribute].compactMap { axString(element, $0) }
+    }
+    var children: [AXNode] {
+        (axValue(element, kAXChildrenAttribute) as [AXUIElement]?)?.map(AXNode.init) ?? []
+    }
+}
+
+/// Breadth-first text extraction with node, depth, size and time limits.
+struct TextTreeWalker {
+    static let webAreaRole = "AXWebArea"
+
+    var maxNodes: Int
+    var maxDepth: Int
+    var maxCharacters: Int
+    var deadline: Date
+
+    /// The outermost web area (the page in a browser or Electron app), or the window itself.
+    func contentRoot<N: TextTreeNode>(of window: N) -> N {
+        var queue: [(node: N, depth: Int)] = [(window, 0)]
+        var head = 0
+        while head < queue.count, head < maxNodes, Date() < deadline {
+            let (node, depth) = queue[head]
+            head += 1
+            if node.role == Self.webAreaRole { return node }
+            if depth < maxDepth { queue.append(contentsOf: node.children.map { ($0, depth + 1) }) }
+        }
+        return window
     }
 
-    private func string(_ element: AXUIElement, _ attribute: String) -> String? {
-        if let text: String = value(element, attribute) { return text }
-        if let url: URL = value(element, attribute) { return url.absoluteString }
-        return nil
+    func collectText<N: TextTreeNode>(from root: N) -> String {
+        var queue: [(node: N, depth: Int)] = [(root, 0)]
+        var head = 0
+        var seen = Set<String>()
+        var pieces: [String] = []
+        var characters = 0
+
+        while head < queue.count, head < maxNodes, characters < maxCharacters, Date() < deadline {
+            let (node, depth) = queue[head]
+            head += 1
+
+            if node.subrole == kAXSecureTextFieldSubrole { continue }
+
+            for raw in node.texts {
+                let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty, seen.insert(text).inserted else { continue }
+                let clipped = String(text.prefix(5_000))
+                pieces.append(clipped)
+                characters += clipped.count
+            }
+
+            if depth < maxDepth { queue.append(contentsOf: node.children.map { ($0, depth + 1) }) }
+        }
+        return pieces.joined(separator: "\n")
     }
 }
 

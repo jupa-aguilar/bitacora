@@ -26,15 +26,16 @@ Bitácora no graba video continuo. Guarda un **cuadro** sólo cuando pasa algo q
 | `idle` | pasaron 5 min sin guardar nada |
 
 ```
-eventos ─► cola de disparadores ─► el de mayor prioridad ─► antirrebote (2 s)
+eventos ─► cola de disparadores ─► el de mayor prioridad ─► antirrebote (5 s)
         ─► privacidad (bloqueo, apps excluidas, incógnito)
         ─► captura (ScreenCaptureKit) ─► ¿cambió? (histograma + SSIM)
-        ─► texto: accesibilidad ─(poco texto)─► OCR (Vision)
+        ─► texto: accesibilidad ─(poco texto)─► OCR (Vision) ─► ¿texto nuevo?
         ─► JPEG en disco + fila en SQLite con índice FTS5
 ```
 
-- **¿Cambió la pantalla?** Se compara una miniatura en grises de 96 px con la del último cuadro guardado. La diferencia promedia la distancia de Hellinger entre histogramas (cambios globales) y 1 − SSIM por bloques de 8×8 (cambios locales).
-- **Texto:** primero se lee el árbol de accesibilidad de la ventana activa, que da el texto exacto y es barato. Si trae menos de 100 caracteres (lienzos, juegos, escritorio remoto) se usa OCR de Vision.
+- **¿Cambió la pantalla?** Se compara una miniatura en grises de 96 px con la del último cuadro guardado. La diferencia promedia la distancia de Hellinger entre histogramas (cambios globales) y 1 − SSIM por bloques de 8×8 (cambios locales). Por debajo de 0,03 el cuadro se descarta como duplicado, aunque haya cambiado el título de la ventana.
+- **Texto:** primero se lee el árbol de accesibilidad de la ventana activa, que da el texto exacto y es barato. En navegadores y apps web se lee sólo la página, sin pestañas, barras ni extensiones. Si trae menos de 100 caracteres (lienzos, juegos, escritorio remoto) se usa OCR de Vision.
+- **¿Texto nuevo?** Si el texto es idéntico al del último cuadro guardado, no se guarda: no agregaría nada a las búsquedas.
 - **Búsqueda:** SQLite FTS5 con `remove_diacritics`, así que `cancion` encuentra "canción" y las palabras se buscan por prefijo.
 
 ## Privacidad

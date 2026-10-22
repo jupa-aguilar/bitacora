@@ -3,15 +3,15 @@ import Foundation
 /// Runtime settings. Every field is optional in `config.json`; missing fields keep their defaults.
 public struct BitacoraConfig: Codable, Sendable {
     /// Minimum time between two stored frames (debounce), in seconds.
-    public var minCaptureInterval: TimeInterval = 2.0
+    public var minCaptureInterval: TimeInterval = 5.0
     /// Store a frame after this many seconds without any capture, even if nothing happened.
     public var idleCaptureInterval: TimeInterval = 300
     /// How often the screen is sampled to detect visual changes, in seconds.
     public var visualCheckInterval: TimeInterval = 3.0
     /// Difference score (0...1) above which a visual check becomes a capture.
     public var visualChangeThreshold: Double = 0.05
-    /// Below this score an event-triggered frame in the same window is considered a duplicate.
-    public var duplicateThreshold: Double = 0.01
+    /// Below this score an event-triggered frame is considered a duplicate, even if the window changed.
+    public var duplicateThreshold: Double = 0.03
     /// Seconds without keystrokes before a `typing_pause` trigger fires.
     public var typingPauseDelay: TimeInterval = 1.5
     /// Seconds without scrolling before a `scroll_stop` trigger fires.
@@ -21,8 +21,8 @@ public struct BitacoraConfig: Codable, Sendable {
     /// OCR languages, in priority order (BCP-47).
     public var ocrLanguages: [String] = ["es-ES", "en-US"]
     /// Stored screenshots are downscaled to this width (pixels).
-    public var snapshotMaxWidth: Int = 1920
-    public var jpegQuality: Double = 0.6
+    public var snapshotMaxWidth: Int = 1440
+    public var jpegQuality: Double = 0.5
     /// Apps that are never captured (bundle identifiers).
     public var excludedBundleIDs: [String] = [
         "com.apple.loginwindow",

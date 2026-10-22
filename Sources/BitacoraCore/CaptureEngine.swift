@@ -25,7 +25,7 @@ public actor CaptureEngine {
     private var pending: [Trigger] = []
     private var gate: CaptureGate
     private var comparer = FrameComparer()
-    private var lastStoredWindowKey: String?
+    private var lastStoredText: String?
     private var lastCapture: Date?
     private var lastIdleTrigger: Date?
     private var busy = false
@@ -104,18 +104,8 @@ public actor CaptureEngine {
         }
 
         let difference = comparer.difference(to: thumbnail)
-        let sameWindow = context.windowKey == lastStoredWindowKey
-        switch trigger.kind {
-        case .manual, .idle:
-            break
-        case .visualChange:
-            if difference < config.visualChangeThreshold {
-                return .skipped(reason: "no visual change (\(String(format: "%.3f", difference)))")
-            }
-        default:
-            if sameWindow && difference < config.duplicateThreshold {
-                return .skipped(reason: "duplicate of previous frame")
-            }
+        if let reason = CapturePolicy.visualSkipReason(trigger: trigger.kind, difference: difference, config: config) {
+            return .skipped(reason: reason)
         }
 
         let accessibilityText = context.pid.map { accessibility.readText(pid: $0) } ?? ""
@@ -125,6 +115,9 @@ public actor CaptureEngine {
             minAccessibilityChars: config.minAccessibilityChars,
             ocr: { try ocr.recognize(image) }
         )
+        if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStoredText) {
+            return .skipped(reason: reason)
+        }
 
         let day = Self.dayFormatter.string(from: now)
         let imageURL = paths.frames
@@ -151,10 +144,39 @@ public actor CaptureEngine {
             comparer.setReference(thumbnail)
             gate.markCaptured(at: now)
             lastCapture = now
-            lastStoredWindowKey = context.windowKey
+            lastStoredText = extracted.text
             return .stored(id: id, trigger: trigger.kind, difference: difference, source: extracted.source)
         } catch {
             return .skipped(reason: "could not save frame: \(error)")
+        }
+    }
+}
+
+/// Rules that discard a frame after it was captured. Manual and idle captures are always kept.
+public enum CapturePolicy {
+    /// Applied right after the screenshot, before the (more expensive) text extraction.
+    public static func visualSkipReason(trigger: TriggerKind, difference: Double, config: BitacoraConfig) -> String? {
+        let diff = String(format: "%.3f", difference)
+        switch trigger {
+        case .manual, .idle:
+            return nil
+        case .visualChange:
+            return difference < config.visualChangeThreshold ? "no visual change (\(diff))" : nil
+        default:
+            // Even if the app or window title changed (browsers rewrite titles on their own),
+            // an identical-looking screen adds nothing.
+            return difference < config.duplicateThreshold ? "duplicate of previous frame (\(diff))" : nil
+        }
+    }
+
+    /// Applied after text extraction: the same text as the last stored frame adds nothing to search.
+    public static func textSkipReason(trigger: TriggerKind, text: String, previousText: String?) -> String? {
+        switch trigger {
+        case .manual, .idle:
+            return nil
+        default:
+            guard !text.isEmpty, text == previousText else { return nil }
+            return "same text as previous frame"
         }
     }
 }
