@@ -12,6 +12,9 @@ let usage = """
       bitacora stats                          Resumen de lo grabado
       bitacora doctor [--request]             Revisa (o pide) los permisos de macOS
       bitacora mcp                            Servidor MCP por stdio para asistentes de IA
+      bitacora install                        Graba sola al iniciar sesión (launchd)
+      bitacora uninstall                      Quita el arranque automático
+      bitacora clean [--dry-run]              Aplica la retención: borra capturas viejas
 
     Datos en ~/.bitacora (o $BITACORA_HOME). Configuración opcional: ~/.bitacora/config.json
     """
@@ -89,6 +92,7 @@ func doctor(paths: DataPaths, request: Bool) {
     print("Grabación de pantalla: \(screen ? "✅ concedido" : "❌ falta (Ajustes → Privacidad y seguridad → Grabación de pantalla)")")
     print("Accesibilidad:         \(ax ? "✅ concedido" : "❌ falta (Ajustes → Privacidad y seguridad → Accesibilidad)")")
     print("Datos:                 \(paths.root.path)")
+    print("Arranque automático:   \(LaunchAgent.isLoaded ? "activo (bitacora uninstall para quitarlo)" : "inactivo (bitacora install)")")
     if ax {
         let reader = AccessibilityReader()
         let context = reader.currentContext()
@@ -98,6 +102,7 @@ func doctor(paths: DataPaths, request: Bool) {
     }
     if !screen || !ax {
         print("\nLos permisos se otorgan a la app que ejecuta bitacora (Terminal, iTerm, etc.).")
+        print("Con el arranque automático se otorgan al binario: \(executableURL.path)")
         print("Probá `bitacora doctor --request` para que macOS los pida.")
     }
 }
@@ -109,9 +114,21 @@ func run() async {
 
     switch args.positional.first {
     case "record":
+        let underLaunchd = LaunchAgent.isRunningUnderLaunchd
         guard ScreenCapturer.hasPermission else {
+            if underLaunchd {
+                // Nobody sees a terminal here: let macOS show its prompts, then exit cleanly so
+                // launchd does not retry in a loop.
+                ScreenCapturer.requestPermission()
+                AccessibilityReader.requestTrust()
+                Log.info("falta el permiso de Grabación de pantalla para \(executableURL.path). Activalo en Ajustes → Privacidad y seguridad → Grabación de pantalla y después corré `bitacora install`.")
+                exit(0)
+            }
             doctor(paths: paths, request: true)
             fail("falta el permiso de Grabación de pantalla")
+        }
+        if underLaunchd && !AccessibilityReader.isTrusted {
+            AccessibilityReader.requestTrust()
         }
         let config = loadConfig(paths)
         let storage = openStorage(paths)
@@ -119,16 +136,19 @@ func run() async {
         if args.flags.contains("serve") {
             startServer(storage: storage, port: config.port)
         }
+        startRetention(Retention(storage: storage, paths: paths, config: config))
         await MainActor.run {
             let sources = EventSources(engine: engine, config: config)
             sources.start()
             Recorder.sources = sources
         }
-        Log.info("grabando en \(paths.root.path) — Ctrl-C para terminar")
-        signal(SIGINT) { _ in
+        Log.info("grabando en \(paths.root.path)" + (underLaunchd ? " (arranque automático)" : " — Ctrl-C para terminar"))
+        let stop: @convention(c) (Int32) -> Void = { _ in
             FileHandle.standardError.write(Data("\nbitácora cerrada\n".utf8))
             exit(0)
         }
+        signal(SIGINT, stop)
+        signal(SIGTERM, stop)
 
     case "serve":
         let config = loadConfig(paths)
@@ -173,6 +193,10 @@ func run() async {
         do {
             print("Cuadros guardados: \(try storage.count())")
             if let last = try storage.lastCaptureDate() { print("Último: \(dateFormatter.string(from: last))") }
+            let config = loadConfig(paths)
+            let usage = ByteCountFormatter.string(fromByteCount: Retention.diskUsage(of: paths.frames), countStyle: .file)
+            let keep = config.imageRetentionDays > 0 ? "se borran a los \(config.imageRetentionDays) días" : "se guardan para siempre"
+            print("Capturas en disco: \(usage) (\(keep))")
             let perApp = try storage.framesPerApp()
             if !perApp.isEmpty {
                 print("\nPor app:")
@@ -181,6 +205,46 @@ func run() async {
         } catch {
             fail("\(error)")
         }
+        exit(0)
+
+    case "clean":
+        let config = loadConfig(paths)
+        let dryRun = args.flags.contains("dry-run")
+        do {
+            let report = try Retention(storage: openStorage(paths), paths: paths, config: config).run(dryRun: dryRun)
+            print(report.isEmpty ? "No hay nada para limpiar." : report.summary.prefix(1).uppercased() + report.summary.dropFirst() + ".")
+        } catch {
+            fail("\(error)")
+        }
+        exit(0)
+
+    case "install":
+        if executableURL.path.contains("/.build/") {
+            fail("instalá primero el binario (por ejemplo en ~/.local/bin) y corré `bitacora install` desde ahí")
+        }
+        let agent = LaunchAgent(executable: executableURL, paths: paths)
+        do {
+            try agent.install()
+        } catch {
+            fail("\(error)")
+        }
+        print("Arranque automático activado: Bitácora graba al iniciar sesión y se reinicia si se cae.")
+        print("Registro: \(agent.logFile.path)")
+        print("""
+
+            Si macOS pide permisos, activá «bitacora» en Ajustes → Privacidad y seguridad →
+            Grabación de pantalla y Accesibilidad, y después volvé a correr `bitacora install`.
+            Al actualizar el binario puede que macOS los pida de nuevo.
+            """)
+        exit(0)
+
+    case "uninstall":
+        do {
+            try LaunchAgent.uninstall()
+        } catch {
+            fail("\(error)")
+        }
+        print("Arranque automático quitado. Tus datos siguen en \(paths.root.path).")
         exit(0)
 
     case "doctor":
@@ -212,6 +276,26 @@ func run() async {
 enum Recorder {
     nonisolated(unsafe) static var sources: EventSources?
     nonisolated(unsafe) static var server: APIServer?
+    nonisolated(unsafe) static var retentionTimer: DispatchSourceTimer?
+}
+
+/// Absolute path of this binary, as launchd and the privacy settings see it.
+let executableURL = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])).resolvingSymlinksInPath()
+
+/// Applies retention shortly after start and then every hour, off the main thread.
+func startRetention(_ retention: Retention) {
+    let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+    timer.schedule(deadline: .now() + 10, repeating: 3_600)
+    timer.setEventHandler {
+        do {
+            let report = try retention.run()
+            if !report.isEmpty { Log.info("retención: \(report.summary)") }
+        } catch {
+            Log.info("retención falló: \(error)")
+        }
+    }
+    timer.resume()
+    Recorder.retentionTimer = timer
 }
 
 func startServer(storage: Storage, port: UInt16) {

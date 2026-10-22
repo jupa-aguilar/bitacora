@@ -39,6 +39,10 @@ public struct BitacoraConfig: Codable, Sendable {
     ]
     /// Local API port (bound to 127.0.0.1 only).
     public var port: UInt16 = 3939
+    /// Screenshots older than this many days are deleted; their text stays searchable. 0 = keep forever.
+    public var imageRetentionDays: Int = 30
+    /// Frames (text included) older than this many days are deleted. 0 = keep forever.
+    public var textRetentionDays: Int = 0
 
     public init() {}
 
@@ -59,6 +63,8 @@ public struct BitacoraConfig: Codable, Sendable {
         excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? d.excludedBundleIDs
         excludedTitleKeywords = try c.decodeIfPresent([String].self, forKey: .excludedTitleKeywords) ?? d.excludedTitleKeywords
         port = try c.decodeIfPresent(UInt16.self, forKey: .port) ?? d.port
+        imageRetentionDays = try c.decodeIfPresent(Int.self, forKey: .imageRetentionDays) ?? d.imageRetentionDays
+        textRetentionDays = try c.decodeIfPresent(Int.self, forKey: .textRetentionDays) ?? d.textRetentionDays
     }
 
     /// Loads `config.json` from the data directory, or returns the defaults when it does not exist.
@@ -86,6 +92,7 @@ public struct DataPaths: Sendable {
     public var database: URL { root.appendingPathComponent("bitacora.sqlite") }
     public var frames: URL { root.appendingPathComponent("frames", isDirectory: true) }
     public var config: URL { root.appendingPathComponent("config.json") }
+    public var logs: URL { root.appendingPathComponent("logs", isDirectory: true) }
 
     public func createDirectories() throws {
         try FileManager.default.createDirectory(at: frames, withIntermediateDirectories: true)

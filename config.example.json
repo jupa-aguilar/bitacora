@@ -12,5 +12,7 @@
   "jpegQuality": 0.5,
   "excludedBundleIDs": ["com.apple.keychainaccess", "com.1password.1password"],
   "excludedTitleKeywords": ["incognito", "incógnito", "navegación privada"],
-  "port": 3939
+  "port": 3939,
+  "imageRetentionDays": 30,
+  "textRetentionDays": 0
 }

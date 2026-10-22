@@ -285,6 +285,68 @@ public final class Storage: @unchecked Sendable {
         }
     }
 
+    // MARK: - Retention
+
+    /// Frames captured before `date` that still reference a screenshot.
+    public func framesWithImages(before date: Date) throws -> [(id: Int64, path: String)] {
+        try locked {
+            let statement = try prepare("""
+                SELECT id, image_path FROM frames
+                WHERE captured_at < ?1 AND image_path IS NOT NULL ORDER BY id;
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, date.timeIntervalSince1970)
+            var rows: [(Int64, String)] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                if let path = columnString(statement, 1) { rows.append((sqlite3_column_int64(statement, 0), path)) }
+            }
+            return rows
+        }
+    }
+
+    /// Forgets the screenshot of these frames (their text stays indexed).
+    public func clearImagePaths(ids: [Int64]) throws {
+        guard !ids.isEmpty else { return }
+        try locked {
+            try execute("BEGIN;")
+            do {
+                let statement = try prepare("UPDATE frames SET image_path = NULL WHERE id = ?1;")
+                defer { sqlite3_finalize(statement) }
+                for id in ids {
+                    sqlite3_reset(statement)
+                    sqlite3_bind_int64(statement, 1, id)
+                    guard sqlite3_step(statement) == SQLITE_DONE else { throw lastError() }
+                }
+                try execute("COMMIT;")
+            } catch {
+                try? execute("ROLLBACK;")
+                throw error
+            }
+        }
+    }
+
+    public func countFrames(before date: Date) throws -> Int {
+        try locked {
+            let statement = try prepare("SELECT COUNT(*) FROM frames WHERE captured_at < ?1;")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, date.timeIntervalSince1970)
+            guard sqlite3_step(statement) == SQLITE_ROW else { throw lastError() }
+            return Int(sqlite3_column_int64(statement, 0))
+        }
+    }
+
+    /// Deletes frames (rows and search index entries) captured before `date`.
+    @discardableResult
+    public func deleteFrames(before date: Date) throws -> Int {
+        try locked {
+            let statement = try prepare("DELETE FROM frames WHERE captured_at < ?1;")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, date.timeIntervalSince1970)
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw lastError() }
+            return Int(sqlite3_changes(db))
+        }
+    }
+
     // MARK: - SQLite helpers
 
     private func locked<T>(_ body: () throws -> T) rethrows -> T {

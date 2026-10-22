@@ -73,7 +73,32 @@ bitacora stats
 bitacora serve                          # sólo la API
 bitacora doctor [--request]
 bitacora mcp                            # servidor MCP (lo lanza tu asistente)
+bitacora install | uninstall            # arranque automático al iniciar sesión
+bitacora clean [--dry-run]              # aplica la retención ahora
 ```
+
+### Arranque automático
+
+`bitacora install` crea un LaunchAgent (`~/Library/LaunchAgents/local.bitacora.record.plist`) que corre `bitacora record --serve` al iniciar sesión y lo reinicia si se cae. El registro queda en `~/.bitacora/logs/bitacora.log`. `bitacora uninstall` lo quita sin tocar tus datos.
+
+Con launchd, macOS otorga los permisos al binario `bitacora`, no a Terminal. La primera vez:
+
+1. `bitacora install`: macOS pide Grabación de pantalla y Accesibilidad para «bitacora».
+2. Activalos en Ajustes → Privacidad y seguridad.
+3. `bitacora install` de nuevo para que arranque con los permisos.
+
+El binario se firma ad hoc, así que al instalar una versión nueva macOS puede pedir los permisos otra vez: repetí los pasos 2 y 3.
+
+### Retención
+
+Para que el disco no crezca sin límite, cada hora (y con `bitacora clean`) se aplican dos reglas:
+
+| Opción | Por defecto | Qué borra |
+|---|---|---|
+| `imageRetentionDays` | 30 | las capturas más viejas; el texto sigue buscable |
+| `textRetentionDays` | 0 (nunca) | cuadros completos, con su texto |
+
+`bitacora clean --dry-run` muestra qué se borraría sin borrar nada, y `bitacora stats` muestra cuánto ocupan las capturas. Nunca se borra un archivo fuera de `~/.bitacora/frames`.
 
 ### API local (`http://127.0.0.1:3939`)
 
@@ -135,15 +160,17 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 | `Storage.swift` | SQLite + FTS5 |
 | `APIServer.swift` | HTTP de sólo lectura en loopback |
 | `MCPServer.swift` | servidor MCP (JSON-RPC por stdio) |
+| `Retention.swift` | borrado de capturas y cuadros viejos |
+| `LaunchAgent.swift` | arranque automático con launchd |
 
 ## Hoja de ruta
 
-- [ ] Varios monitores
-- [ ] Retención automática (borrar cuadros viejos)
-- [ ] Audio y transcripción local
-- [ ] Interfaz de línea de tiempo
 - [x] Servidor MCP para que asistentes de IA consulten tu historial
-- [ ] Agente de inicio de sesión (`launchd`)
+- [x] Retención automática (borrar capturas y cuadros viejos)
+- [x] Agente de inicio de sesión (`launchd`)
+- [ ] Varios monitores
+- [ ] Interfaz de línea de tiempo
+- [ ] Audio y transcripción local
 
 ## Licencia
 
