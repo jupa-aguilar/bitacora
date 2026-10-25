@@ -51,7 +51,7 @@ final class ActivitySummaryTests: XCTestCase {
             sample(20, "Code", "a"), sample(25, "Safari", "Mail"), sample(27, "Code", "b"),
         ], from: at(0), to: at(30))
         XCTAssertEqual(summary.perApp.map(\.app), ["Code", "Safari"])
-        XCTAssertEqual(summary.perApp.map(\.duration), [23 * 60, 7 * 60])
+        XCTAssertEqual(summary.perApp.map(\.duration), [23 * 60, 7 * 60] as [TimeInterval])
         XCTAssertEqual(summary.perWindow.first, ActivityTotal(app: "Code", title: "a", duration: 20 * 60))
     }
 
