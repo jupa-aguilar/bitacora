@@ -16,6 +16,7 @@ Lo que falta, en el orden recomendado. Cada punto dice por qué importa y qué s
 - [x] Ráfagas de `visual_change`: el cuadro nuevo reemplaza al anterior (ver abajo)
 - [x] Texto de lienzos con OCR, recortado a la página o la ventana (ver abajo)
 - [x] Descartar cuadros `idle` sin cambios (ver abajo)
+- [x] Varios monitores: se captura la pantalla de la ventana activa (ver abajo)
 
 ## 1. Medir con uso real ✓
 
@@ -73,11 +74,17 @@ Falta confirmarlo con una grabación nueva.
 
 **Para más adelante:** aplicar la misma regla también a `scroll_stop` y `click` bajaría el total a unos 1700 cuadros (−38 %). Queda afuera por ahora porque esos cuadros muestran otra parte de la pantalla aunque el texto sea el mismo.
 
-## 4. Varios monitores
+## 4. Varios monitores ✓
 
-Hoy sólo se captura la pantalla principal (`captureMainDisplay`), así que lo que pasa en un monitor externo conectado a esta Mac se pierde. Sólo importa si se usa un monitor externo.
+Antes sólo se capturaba la pantalla principal (`captureMainDisplay`), así que lo que pasaba en un monitor externo se perdía.
+
+**Lo que se hizo:** en cada cuadro se captura la pantalla donde está la ventana activa. Si la ventana ocupa dos pantallas, gana la que muestra la mayor parte. Sin ventana (por ejemplo, el escritorio) se usa la pantalla bajo el puntero, y si no, la principal. El OCR usa la escala y los límites de esa pantalla: Retina en la MacBook, 1x en un monitor común.
+
+Se captura una sola pantalla por cuadro, no todas: lo que pasa en la otra pantalla mientras trabajás en ésta (un video, por ejemplo) no se guarda. Capturar todas multiplicaría el espacio en disco.
 
 Universal Control no entra acá: la otra pantalla es de otro equipo (un iPad u otra Mac) y no se puede capturar desde esta Mac. Los 75 cuadros de "Universal Control" son de esta pantalla mientras el cursor estaba en el otro equipo.
+
+**Pendiente:** probarlo con un monitor externo. Al implementarlo había sólo la pantalla de la MacBook conectada, así que lo verifican los tests, no una grabación real.
 
 ## 5. Interfaz de línea de tiempo
 

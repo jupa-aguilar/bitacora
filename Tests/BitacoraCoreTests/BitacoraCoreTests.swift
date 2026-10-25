@@ -250,6 +250,38 @@ final class OCRRegionTests: XCTestCase {
     }
 }
 
+final class DisplayChoiceTests: XCTestCase {
+    // A MacBook (Retina) and an external monitor to its right, slightly higher.
+    private let laptop = DisplayInfo(id: 1, bounds: CGRect(x: 0, y: 0, width: 1512, height: 982), scale: 2)
+    private let external = DisplayInfo(id: 2, bounds: CGRect(x: 1512, y: -200, width: 2560, height: 1440), scale: 1)
+    private var both: [DisplayInfo] { [laptop, external] }
+
+    private func choose(window: CGRect?, pointer: CGPoint? = nil, displays: [DisplayInfo]? = nil) -> CGDirectDisplayID? {
+        DisplayInfo.choose(from: displays ?? both, window: window, pointer: pointer, main: 1)?.id
+    }
+
+    func testDisplayShowingTheWindowIsCaptured() {
+        XCTAssertEqual(choose(window: CGRect(x: 1700, y: 0, width: 1200, height: 800)), 2)
+        XCTAssertEqual(choose(window: CGRect(x: 100, y: 100, width: 800, height: 600)), 1)
+    }
+
+    func testWindowAcrossDisplaysGoesWhereMostOfItIs() {
+        XCTAssertEqual(choose(window: CGRect(x: 1300, y: 0, width: 1000, height: 600)), 2)
+        XCTAssertEqual(choose(window: CGRect(x: 600, y: 0, width: 1000, height: 600)), 1)
+    }
+
+    func testWithoutAWindowThePointerDecides() {
+        XCTAssertEqual(choose(window: nil, pointer: CGPoint(x: 2000, y: 300)), 2)
+        XCTAssertEqual(choose(window: CGRect(x: 9000, y: 9000, width: 10, height: 10), pointer: CGPoint(x: 10, y: 10)), 1)
+    }
+
+    func testOtherwiseTheMainDisplay() {
+        XCTAssertEqual(choose(window: nil, pointer: nil), 1)
+        XCTAssertEqual(choose(window: nil, pointer: CGPoint(x: -500, y: -500)), 1)
+        XCTAssertNil(choose(window: nil, displays: []))
+    }
+}
+
 final class WindowMemoryTests: XCTestCase {
     func testFirstReadOfAWindowIsNew() {
         var memory = WindowMemory()

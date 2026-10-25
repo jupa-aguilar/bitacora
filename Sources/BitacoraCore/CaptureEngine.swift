@@ -101,9 +101,12 @@ public actor CaptureEngine {
         let context = accessibility.currentContext()
         if let reason = privacy.skipReason(for: context) { return .skipped(reason: reason) }
 
+        guard let display = DisplayInfo.choose(from: DisplayInfo.active(), window: context.windowFrame,
+                                               pointer: CGEvent(source: nil)?.location, main: CGMainDisplayID())
+        else { return .skipped(reason: "no display") }
         let image: CGImage
         do {
-            image = try await capturer.captureMainDisplay()
+            image = try await capturer.captureDisplay(display)
         } catch {
             return .skipped(reason: "screenshot failed: \(error)")
         }
@@ -124,7 +127,7 @@ public actor CaptureEngine {
             accessibility: content.text,
             knownWords: knownWords,
             minAccessibilityChars: config.minAccessibilityChars,
-            ocr: { try ocr.recognize(await self.ocrImage(screen: image, pid: context.pid, content: content)) }
+            ocr: { try ocr.recognize(await self.ocrImage(screen: image, display: display, pid: context.pid, content: content)) }
         )
         windowMemory.remember(extracted.text, window: context.windowKey)
         if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStored?.text,
@@ -181,12 +184,12 @@ public actor CaptureEngine {
 
     /// What OCR reads: the focused window captured on its own, so notifications and windows on top
     /// of it stay out, cropped to the page in browsers. Falls back to cropping the display screenshot.
-    private func ocrImage(screen: CGImage, pid: pid_t?, content: AccessibleContent) async -> CGImage {
+    private func ocrImage(screen: CGImage, display: DisplayInfo, pid: pid_t?, content: AccessibleContent) async -> CGImage {
         if let pid, let windowFrame = content.windowFrame,
-           let window = try? await capturer.captureWindow(pid: pid, frame: windowFrame) {
+           let window = try? await capturer.captureWindow(pid: pid, frame: windowFrame, scale: display.scale) {
             return OCRRegion.crop(window.image, to: content.frame, in: window.frame)
         }
-        return OCRRegion.crop(screen, to: content.frame, in: CGDisplayBounds(CGMainDisplayID()))
+        return OCRRegion.crop(screen, to: content.frame, in: display.bounds)
     }
 }
 
