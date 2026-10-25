@@ -62,15 +62,16 @@ public struct AccessibilityReader: Sendable {
 
     /// Like `readText`, plus where on screen that text lives (the pages, or the whole window).
     public func readContent(pid: pid_t) -> AccessibleContent {
-        guard let window = focusedWindow(pid: pid) else { return AccessibleContent(text: "", frame: nil) }
+        guard let window = focusedWindow(pid: pid) else { return AccessibleContent(text: "", frame: nil, windowFrame: nil) }
         let walker = TextTreeWalker(
             maxNodes: maxNodes, maxDepth: maxDepth, maxCharacters: maxCharacters,
             deadline: Date().addingTimeInterval(timeBudget)
         )
-        let content = walker.content(of: AXNode(element: window))
+        let root = AXNode(element: window)
+        let content = walker.content(of: root)
         let frames = content.roots.compactMap(\.frame).filter { $0.width > 0 && $0.height > 0 }
         let frame = frames.dropFirst().reduce(frames.first) { $0?.union($1) }
-        return AccessibleContent(text: content.text, frame: frame)
+        return AccessibleContent(text: content.text, frame: frame, windowFrame: root.frame)
     }
 
     // MARK: - AX helpers
@@ -94,6 +95,14 @@ public struct AccessibleContent: Sendable, Equatable {
     public var text: String
     /// Global screen rectangle (points, top-left origin) of the elements the text was read from.
     public var frame: CGRect?
+    /// Same, for the focused window.
+    public var windowFrame: CGRect?
+
+    public init(text: String, frame: CGRect?, windowFrame: CGRect?) {
+        self.text = text
+        self.frame = frame
+        self.windowFrame = windowFrame
+    }
 }
 
 private func axRect(_ element: AXUIElement) -> CGRect? {

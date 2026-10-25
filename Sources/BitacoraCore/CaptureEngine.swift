@@ -28,8 +28,8 @@ public actor CaptureEngine {
     private var gate: CaptureGate
     private var comparer = FrameComparer()
     private var lastStored: LastStoredFrame?
-    /// Last accessibility text read from each window, stored or not, keyed by `WindowContext.windowKey`.
-    private var accessibilityByWindow: [String: String] = [:]
+    /// What each window showed before, keyed by `WindowContext.windowKey`.
+    private var windowMemory = WindowMemory()
     private var lastCapture: Date?
     private var lastIdleTrigger: Date?
     private var busy = false
@@ -116,16 +116,17 @@ public actor CaptureEngine {
             return .skipped(reason: reason)
         }
 
-        let content = context.pid.map { accessibility.readContent(pid: $0) } ?? AccessibleContent(text: "", frame: nil)
-        let previousAccessibility = accessibilityByWindow[context.windowKey]
-        rememberAccessibility(content.text, for: context.windowKey)
+        let content = context.pid.map { accessibility.readContent(pid: $0) }
+            ?? AccessibleContent(text: "", frame: nil, windowFrame: nil)
+        let knownWords = windowMemory.knownWords(ifNothingNew: content.text, window: context.windowKey)
         let ocr = self.ocr
-        let extracted = TextSelector.choose(
+        let extracted = await TextSelector.choose(
             accessibility: content.text,
-            previousAccessibility: previousAccessibility,
+            knownWords: knownWords,
             minAccessibilityChars: config.minAccessibilityChars,
-            ocr: { try ocr.recognize(OCRRegion.crop(image, to: content.frame)) }
+            ocr: { try ocr.recognize(await self.ocrImage(screen: image, pid: context.pid, content: content)) }
         )
+        windowMemory.remember(extracted.text, window: context.windowKey)
         if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStored?.text,
                                                      difference: difference, config: config) {
             return .skipped(reason: reason)
@@ -178,10 +179,14 @@ public actor CaptureEngine {
         }
     }
 
-    private func rememberAccessibility(_ text: String, for windowKey: String) {
-        // Only recently used windows matter; starting over now and then keeps the memory small.
-        if accessibilityByWindow.count >= 50, accessibilityByWindow[windowKey] == nil { accessibilityByWindow.removeAll() }
-        accessibilityByWindow[windowKey] = text
+    /// What OCR reads: the focused window captured on its own, so notifications and windows on top
+    /// of it stay out, cropped to the page in browsers. Falls back to cropping the display screenshot.
+    private func ocrImage(screen: CGImage, pid: pid_t?, content: AccessibleContent) async -> CGImage {
+        if let pid, let windowFrame = content.windowFrame,
+           let window = try? await capturer.captureWindow(pid: pid, frame: windowFrame) {
+            return OCRRegion.crop(window.image, to: content.frame, in: window.frame)
+        }
+        return OCRRegion.crop(screen, to: content.frame, in: CGDisplayBounds(CGMainDisplayID()))
     }
 }
 
