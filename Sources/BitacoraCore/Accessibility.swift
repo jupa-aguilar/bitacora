@@ -57,12 +57,20 @@ public struct AccessibilityReader: Sendable {
     /// Visible text of the frontmost app's focused window, top to bottom, without exact duplicates.
     /// In browsers and web-based apps only the page is read, not tabs, toolbars or extensions.
     public func readText(pid: pid_t) -> String {
-        guard let window = focusedWindow(pid: pid) else { return "" }
+        readContent(pid: pid).text
+    }
+
+    /// Like `readText`, plus where on screen that text lives (the pages, or the whole window).
+    public func readContent(pid: pid_t) -> AccessibleContent {
+        guard let window = focusedWindow(pid: pid) else { return AccessibleContent(text: "", frame: nil) }
         let walker = TextTreeWalker(
             maxNodes: maxNodes, maxDepth: maxDepth, maxCharacters: maxCharacters,
             deadline: Date().addingTimeInterval(timeBudget)
         )
-        return walker.readContent(of: AXNode(element: window))
+        let content = walker.content(of: AXNode(element: window))
+        let frames = content.roots.compactMap(\.frame).filter { $0.width > 0 && $0.height > 0 }
+        let frame = frames.dropFirst().reduce(frames.first) { $0?.union($1) }
+        return AccessibleContent(text: content.text, frame: frame)
     }
 
     // MARK: - AX helpers
@@ -80,6 +88,29 @@ public struct AccessibilityReader: Sendable {
     private func string(_ element: AXUIElement, _ attribute: String) -> String? {
         axString(element, attribute)
     }
+}
+
+public struct AccessibleContent: Sendable, Equatable {
+    public var text: String
+    /// Global screen rectangle (points, top-left origin) of the elements the text was read from.
+    public var frame: CGRect?
+}
+
+private func axRect(_ element: AXUIElement) -> CGRect? {
+    var origin = CGPoint.zero
+    var size = CGSize.zero
+    guard let position = axGeometry(element, kAXPositionAttribute), AXValueGetValue(position, .cgPoint, &origin),
+          let extent = axGeometry(element, kAXSizeAttribute), AXValueGetValue(extent, .cgSize, &size)
+    else { return nil }
+    return CGRect(origin: origin, size: size)
+}
+
+private func axGeometry(_ element: AXUIElement, _ attribute: String) -> AXValue? {
+    var raw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success,
+          let raw, CFGetTypeID(raw) == AXValueGetTypeID()
+    else { return nil }
+    return (raw as! AXValue)
 }
 
 private func axValue<T>(_ element: AXUIElement, _ attribute: String) -> T? {
@@ -114,6 +145,7 @@ struct AXNode: TextTreeNode {
     var children: [AXNode] {
         (axValue(element, kAXChildrenAttribute) as [AXUIElement]?)?.map(AXNode.init) ?? []
     }
+    var frame: CGRect? { axRect(element) }
 }
 
 /// Breadth-first text extraction with node, depth, size and time limits.
@@ -128,12 +160,17 @@ struct TextTreeWalker {
     /// Text of the window's web pages when it has any (browsers, Electron apps), skipping tabs and
     /// toolbars; otherwise, or when every page is empty, the text of the whole window.
     func readContent<N: TextTreeNode>(of window: N) -> String {
+        content(of: window).text
+    }
+
+    /// The text `readContent` returns and the nodes it was read from.
+    func content<N: TextTreeNode>(of window: N) -> (text: String, roots: [N]) {
         let pages = webAreas(in: window)
         if !pages.isEmpty {
             let text = collectText(from: pages)
-            if !text.isEmpty { return text }
+            if !text.isEmpty { return (text, pages) }
         }
-        return collectText(from: [window])
+        return (collectText(from: [window]), [window])
     }
 
     /// Outermost web areas, in breadth-first order. Apps like Claude or Slack host several

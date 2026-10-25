@@ -4,6 +4,8 @@ import SQLite3
 public enum TextSource: String, Codable, Sendable {
     case accessibility
     case ocr
+    /// Accessibility text plus what OCR saw on top of it (canvas apps).
+    case accessibilityAndOCR = "accessibility+ocr"
     case none
 }
 
