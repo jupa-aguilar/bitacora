@@ -28,6 +28,8 @@ public actor CaptureEngine {
     private var gate: CaptureGate
     private var comparer = FrameComparer()
     private var lastStored: LastStoredFrame?
+    /// Last accessibility text read from each window, stored or not, keyed by `WindowContext.windowKey`.
+    private var accessibilityByWindow: [String: String] = [:]
     private var lastCapture: Date?
     private var lastIdleTrigger: Date?
     private var busy = false
@@ -114,14 +116,18 @@ public actor CaptureEngine {
             return .skipped(reason: reason)
         }
 
-        let accessibilityText = context.pid.map { accessibility.readText(pid: $0) } ?? ""
+        let content = context.pid.map { accessibility.readContent(pid: $0) } ?? AccessibleContent(text: "", frame: nil)
+        let previousAccessibility = accessibilityByWindow[context.windowKey]
+        rememberAccessibility(content.text, for: context.windowKey)
         let ocr = self.ocr
         let extracted = TextSelector.choose(
-            accessibility: accessibilityText,
+            accessibility: content.text,
+            previousAccessibility: previousAccessibility,
             minAccessibilityChars: config.minAccessibilityChars,
-            ocr: { try ocr.recognize(image) }
+            ocr: { try ocr.recognize(OCRRegion.crop(image, to: content.frame)) }
         )
-        if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStored?.text) {
+        if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStored?.text,
+                                                     difference: difference, config: config) {
             return .skipped(reason: reason)
         }
         let replacing = CapturePolicy.replacesLast(trigger: trigger.kind, context: context, text: extracted.text,
@@ -171,9 +177,16 @@ public actor CaptureEngine {
             return .skipped(reason: "could not save frame: \(error)")
         }
     }
+
+    private func rememberAccessibility(_ text: String, for windowKey: String) {
+        // Only recently used windows matter; starting over now and then keeps the memory small.
+        if accessibilityByWindow.count >= 50, accessibilityByWindow[windowKey] == nil { accessibilityByWindow.removeAll() }
+        accessibilityByWindow[windowKey] = text
+    }
 }
 
-/// Rules that discard a frame after it was captured. Manual and idle captures are always kept.
+/// Rules that discard a frame after it was captured. Manual captures are always kept, and idle ones
+/// unless neither the screen nor the text changed.
 public enum CapturePolicy {
     /// Applied right after the screenshot, before the (more expensive) text extraction.
     public static func visualSkipReason(trigger: TriggerKind, difference: Double, config: BitacoraConfig) -> String? {
@@ -191,10 +204,15 @@ public enum CapturePolicy {
     }
 
     /// Applied after text extraction: the same text as the last stored frame adds nothing to search.
-    public static func textSkipReason(trigger: TriggerKind, text: String, previousText: String?) -> String? {
+    /// An idle capture is the "still here" mark, so it is only dropped when the screen looks the same too.
+    public static func textSkipReason(trigger: TriggerKind, text: String, previousText: String?,
+                                      difference: Double, config: BitacoraConfig) -> String? {
         switch trigger {
-        case .manual, .idle:
+        case .manual:
             return nil
+        case .idle:
+            guard text == previousText, difference < config.duplicateThreshold else { return nil }
+            return "nothing changed since previous frame"
         default:
             guard !text.isEmpty, text == previousText else { return nil }
             return "same text as previous frame"

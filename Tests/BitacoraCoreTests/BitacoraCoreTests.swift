@@ -137,6 +137,52 @@ final class TextSelectorTests: XCTestCase {
         XCTAssertEqual(TextSelector.choose(accessibility: "  \n", minAccessibilityChars: 100) { "" }.source, .none)
     }
 
+    // Shaped like Excalidraw: the toolbar is exposed, the drawing is not.
+    private let toolbar = (["Excalidraw", "Shapes", "Rectangle", "Diamond", "Ellipse", "Arrow", "Line", "Draw",
+                            "Text", "Eraser", "Zoom in", "Zoom out", "Undo", "Redo", "Library", "Share"]
+                           + (1...6).map { "Keep selected tool active \($0)" }).joined(separator: "\n")
+
+    func testUnchangedAccessibilityAddsWhatOCRSees() {
+        let result = TextSelector.choose(accessibility: toolbar, previousAccessibility: toolbar, minAccessibilityChars: 100) {
+            "Shapes  Rectangle\nRouter de casa\nSwitch del laboratorio\nShapes"
+        }
+        XCTAssertEqual(result.source, .accessibilityAndOCR)
+        XCTAssertEqual(result.text, toolbar + "\nRouter de casa\nSwitch del laboratorio")
+    }
+
+    func testChangedAccessibilitySkipsOCR() {
+        var ocrCalled = false
+        let result = TextSelector.choose(accessibility: toolbar + "\nnuevo", previousAccessibility: toolbar,
+                                         minAccessibilityChars: 100) {
+            ocrCalled = true
+            return "Router de casa y switch del laboratorio"
+        }
+        XCTAssertEqual(result, ExtractedText(text: toolbar + "\nnuevo", source: .accessibility))
+        XCTAssertFalse(ocrCalled)
+    }
+
+    func testOCRAddingLittleKeepsAccessibilityOnly() {
+        // A document scrolled in an app that exposes all of it: OCR wraps lines differently but reads nothing new.
+        let document = "Un índice compuesto conviene cuando filtrás por varias columnas a la vez y el orden importa."
+            + "\n" + String(repeating: "relleno ", count: 10)
+        let result = TextSelector.choose(accessibility: document, previousAccessibility: document, minAccessibilityChars: 100) {
+            "Un índice compuesto conviene cuando\nfiltrás por  varias columnas\n12:04"
+        }
+        XCTAssertEqual(result, ExtractedText(text: document, source: .accessibility))
+    }
+
+    func testUnchangedAccessibilitySurvivesOCRFailure() {
+        struct Failure: Error {}
+        let result = TextSelector.choose(accessibility: toolbar, previousAccessibility: toolbar, minAccessibilityChars: 100) {
+            throw Failure()
+        }
+        XCTAssertEqual(result, ExtractedText(text: toolbar, source: .accessibility))
+    }
+
+    func testMissingLinesIgnoreCaseSpacingAndRepeats() {
+        XCTAssertEqual(TextSelector.lines(of: "HOLA  mundo\n  Nuevo \nnuevo\n\n", missingFrom: "hola mundo"), "Nuevo")
+    }
+
     func testMeaningfulLengthIgnoresWhitespace() {
         XCTAssertEqual(TextSelector.meaningfulLength(" a b\n c\t"), 3)
     }
@@ -159,6 +205,27 @@ final class TextSelectorTests: XCTestCase {
 
         let recognized = try OCRReader(languages: ["es-ES", "en-US"]).recognize(image)
         XCTAssertTrue(recognized.lowercased().contains("funciona"), "OCR returned: \(recognized)")
+    }
+}
+
+final class OCRRegionTests: XCTestCase {
+    private let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+
+    func testRetinaPointsBecomePixels() {
+        let rect = OCRRegion.pixelRect(for: CGRect(x: 100, y: 80, width: 600, height: 400), displayBounds: display,
+                                       imageWidth: 3024, imageHeight: 1964)
+        XCTAssertEqual(rect, CGRect(x: 200, y: 160, width: 1200, height: 800))
+    }
+
+    func testFramesAreClippedToTheDisplay() {
+        let rect = OCRRegion.pixelRect(for: CGRect(x: 1400, y: -50, width: 400, height: 200), displayBounds: display,
+                                       imageWidth: 1512, imageHeight: 982)
+        XCTAssertEqual(rect, CGRect(x: 1400, y: 0, width: 112, height: 150))
+    }
+
+    func testFramesOnAnotherDisplayAreIgnored() {
+        XCTAssertNil(OCRRegion.pixelRect(for: CGRect(x: 2000, y: 0, width: 800, height: 600), displayBounds: display,
+                                         imageWidth: 1512, imageHeight: 982))
     }
 }
 

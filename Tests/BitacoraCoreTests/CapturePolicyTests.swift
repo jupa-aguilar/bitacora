@@ -25,19 +25,30 @@ final class CapturePolicyTests: XCTestCase {
         XCTAssertNil(CapturePolicy.visualSkipReason(trigger: .visualChange, difference: 0.06, config: config))
     }
 
-    func testManualAndIdleAreAlwaysKept() {
-        for trigger in [TriggerKind.manual, .idle] {
-            XCTAssertNil(CapturePolicy.visualSkipReason(trigger: trigger, difference: 0, config: config))
-            XCTAssertNil(CapturePolicy.textSkipReason(trigger: trigger, text: "a", previousText: "a"))
-        }
+    func testManualIsAlwaysKept() {
+        XCTAssertNil(CapturePolicy.visualSkipReason(trigger: .manual, difference: 0, config: config))
+        XCTAssertNil(textSkip(.manual, "a", "a", difference: 0))
+    }
+
+    func testIdleIsKeptUnlessNothingChanged() {
+        XCTAssertNil(CapturePolicy.visualSkipReason(trigger: .idle, difference: 0, config: config))
+        XCTAssertNotNil(textSkip(.idle, "a", "a", difference: 0.01))
+        XCTAssertNotNil(textSkip(.idle, "", "", difference: 0), "a still screen without text adds nothing either")
+        XCTAssertNil(textSkip(.idle, "a", "b", difference: 0.01), "the text changed")
+        XCTAssertNil(textSkip(.idle, "a", "a", difference: 0.2), "the screen changed")
+        XCTAssertNil(textSkip(.idle, "a", nil, difference: 0), "nothing stored yet in this run")
     }
 
     func testRepeatedTextIsSkipped() {
-        XCTAssertNotNil(CapturePolicy.textSkipReason(trigger: .click, text: "hola", previousText: "hola"))
-        XCTAssertNil(CapturePolicy.textSkipReason(trigger: .click, text: "hola mundo", previousText: "hola"))
-        XCTAssertNil(CapturePolicy.textSkipReason(trigger: .click, text: "hola", previousText: nil))
+        XCTAssertNotNil(textSkip(.click, "hola", "hola"))
+        XCTAssertNil(textSkip(.click, "hola mundo", "hola"))
+        XCTAssertNil(textSkip(.click, "hola", nil))
         // No text at all (e.g. a video) is not "repeated text": the visual check already decided.
-        XCTAssertNil(CapturePolicy.textSkipReason(trigger: .visualChange, text: "", previousText: ""))
+        XCTAssertNil(textSkip(.visualChange, "", ""))
+    }
+
+    private func textSkip(_ trigger: TriggerKind, _ text: String, _ previous: String?, difference: Double = 0.2) -> String? {
+        CapturePolicy.textSkipReason(trigger: trigger, text: text, previousText: previous, difference: difference, config: config)
     }
 }
 
@@ -156,6 +167,13 @@ final class TextTreeWalkerTests: XCTestCase {
         XCTAssertFalse(text.contains("Gmail - asunto privado"), "other tabs must not leak into the text")
         XCTAssertFalse(text.contains("Address and search bar"))
         XCTAssertFalse(text.contains("Has access to this site"))
+    }
+
+    func testContentRootsAreThePagesInBrowsers() {
+        let content = walker.content(of: chromeWindow)
+        XCTAssertEqual(content.roots.map(\.role), ["AXWebArea"], "OCR is cropped to these, so tabs stay out")
+        let notes = FakeNode("AXWindow", ["Notas"], [FakeNode("AXTextArea", ["Lista de compras"])])
+        XCTAssertEqual(walker.content(of: notes).roots.map(\.role), ["AXWindow"])
     }
 
     func testPasswordFieldsAreNeverRead() {
