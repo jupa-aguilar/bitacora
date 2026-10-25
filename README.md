@@ -81,6 +81,7 @@ macOS otorga los permisos a la app que ejecuta `bitacora` (Terminal, iTerm…):
 bitacora record [--serve] [--verbose]   # Ctrl-C para terminar
 bitacora capture                        # un cuadro ahora
 bitacora search <texto> [--app Safari] [--limit 50]
+bitacora actividad [desde] [hasta] [--min 5]  # en qué estuviste: bloques y totales
 bitacora stats
 bitacora serve                          # sólo la API
 bitacora doctor [--request]
@@ -112,6 +113,29 @@ Para que el disco no crezca sin límite, cada hora (y con `bitacora clean`) se a
 
 `bitacora clean --dry-run` muestra qué se borraría sin borrar nada, y `bitacora stats` muestra cuánto ocupan las capturas. Nunca se borra un archivo fuera de `~/.bitacora/frames`.
 
+### Actividad por período
+
+`bitacora actividad` (y la herramienta `actividad` del servidor MCP) resume en qué estuviste:
+
+```
+$ bitacora actividad 2026-10-23T08:00 2026-10-23T13:00
+Tiempo activo aproximado: 3 h 15 min. …
+
+Bloques de 2 min o más (9):
+08:56–09:22  26 min  Preview — Guia_Redes_AWS.pdf
+10:15–10:31  16 min  YouTube — Terraform desde 0 - Infrastructure como Código
+10:33–10:50  17 min  ChatGPT — Configurar sonido al terminar Kiro
+…
+Por app:
+- YouTube: 1 h 22 min
+…
+```
+
+- **Período:** fechas ISO 8601, `hoy` o `ayer`. Una fecha sola es el día entero, y sin argumentos es hoy. Con varios días agrega un total por día.
+- **Tiempo:** es aproximado. Cada cuadro cuenta hasta el siguiente, con un máximo de 10 min. Un silencio más largo se toma como ausencia: la pantalla bloqueada o la compu sin usar.
+- **Bloques:** se listan los de 2 min o más (10 min en períodos de más de un día; se cambia con `--min`). Una mirada corta a otra app no corta el bloque. Los totales incluyen todo.
+- **Títulos:** se ignoran los contadores de notificaciones, el número de página y el nombre del navegador. Si la ventana no tiene título, como en algunas apps web, se usa la primera línea del texto.
+
 ### API local (`http://127.0.0.1:3939`)
 
 | Ruta | Respuesta |
@@ -128,6 +152,7 @@ Para que el disco no crezca sin límite, cada hora (y con `bitacora clean`) se a
 | Herramienta | Qué hace |
 |---|---|
 | `buscar` | texto, app y período (ISO 8601); con texto vacío lista lo más reciente |
+| `actividad` | en qué estuvo el usuario en un período: bloques por app y ventana con duración, totales por app, por ventana y por día |
 | `ver_cuadro` | texto completo de un cuadro y, si se pide, la captura |
 | `estadisticas` | cantidad de cuadros, última captura y apps más registradas |
 

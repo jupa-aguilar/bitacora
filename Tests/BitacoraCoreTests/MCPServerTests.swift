@@ -59,14 +59,28 @@ final class MCPServerTests: XCTestCase {
         XCTAssertNil(try makeServer().handle(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#))
     }
 
-    func testToolsListHasThreeReadOnlyTools() throws {
+    func testToolsListHasFourReadOnlyTools() throws {
         let response = try call(try makeServer(), ["jsonrpc": "2.0", "id": 2, "method": "tools/list"])
         let tools = try XCTUnwrap((response["result"] as? [String: Any])?["tools"] as? [[String: Any]])
-        XCTAssertEqual(tools.compactMap { $0["name"] as? String }, ["buscar", "ver_cuadro", "estadisticas"])
+        XCTAssertEqual(tools.compactMap { $0["name"] as? String }, ["buscar", "actividad", "ver_cuadro", "estadisticas"])
         for tool in tools {
             XCTAssertEqual((tool["annotations"] as? [String: Any])?["readOnlyHint"] as? Bool, true)
             XCTAssertEqual((tool["inputSchema"] as? [String: Any])?["type"] as? String, "object")
         }
+    }
+
+    func testActivitySummarizesThePeriodInLocalTime() throws {
+        let result = try tool(try makeServer(), "actividad", ["desde": "2026-10-22", "hasta": "2026-10-22", "min_minutos": 0])
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.text.contains("Actividad entre 2026-10-22 00:00 y 2026-10-23 00:00 (America/Montevideo)"), result.text)
+        // Each frame counts until the next one, at most 10 minutes.
+        XCTAssertTrue(result.text.contains("15:42–15:52  10 min  Safari — PostgreSQL B-tree indexes"), result.text)
+        XCTAssertTrue(result.text.contains("- Notas: 10 min"), result.text)
+    }
+
+    func testActivityReportsBadPeriodsAsToolErrors() throws {
+        XCTAssertTrue(try tool(try makeServer(), "actividad", ["desde": "ayer a la tarde"]).isError)
+        XCTAssertTrue(try tool(try makeServer(), "actividad", ["desde": "2026-10-23", "hasta": "2026-10-22"]).isError)
     }
 
     func testSearchFindsTextWithoutAccentsAndShowsLocalTime() throws {

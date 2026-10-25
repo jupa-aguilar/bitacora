@@ -295,6 +295,26 @@ public final class Storage: @unchecked Sendable {
         }
     }
 
+    /// App and window of every frame in the period, oldest first, for the activity summary.
+    public func activitySamples(from: Date, to: Date) throws -> [ActivitySample] {
+        try locked {
+            let statement = try prepare("""
+                SELECT captured_at, app_name, window_title, substr(text, 1, 200) FROM frames
+                WHERE captured_at >= ?1 AND captured_at < ?2 ORDER BY captured_at;
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_double(statement, 1, from.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 2, to.timeIntervalSince1970)
+            var samples: [ActivitySample] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                samples.append(ActivitySample(capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 0)),
+                                              app: columnString(statement, 1), title: columnString(statement, 2),
+                                              text: columnString(statement, 3)))
+            }
+            return samples
+        }
+    }
+
     public func count() throws -> Int {
         try locked {
             let statement = try prepare("SELECT COUNT(*) FROM frames;")

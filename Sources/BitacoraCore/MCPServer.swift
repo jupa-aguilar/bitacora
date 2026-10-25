@@ -55,7 +55,9 @@ public final class MCPServer {
             "instructions": """
                 Bitácora guarda capturas de la pantalla del usuario (macOS) con el texto visible, la app, \
                 el título de la ventana y la hora. Usá `buscar` para encontrar lo que el usuario vio o \
-                hizo, `ver_cuadro` para leer un cuadro completo y `estadisticas` para un panorama general. \
+                hizo, `actividad` para saber en qué trabajó en un período (bloques por app y ventana, con \
+                duración y totales), `ver_cuadro` para leer un cuadro completo y `estadisticas` para un \
+                panorama general. \
                 Las fechas van en ISO 8601; sin zona horaria se interpretan en la hora local del usuario \
                 (\(timeZone.identifier)).
                 """,
@@ -81,6 +83,26 @@ public final class MCPServer {
                     "desde": ["type": "string", "description": "Inicio del período en ISO 8601, por ejemplo 2026-10-22 o 2026-10-22T09:00:00."],
                     "hasta": ["type": "string", "description": "Fin del período en ISO 8601."],
                     "limite": ["type": "integer", "minimum": 1, "maximum": 50, "description": "Cantidad máxima de resultados (10 por defecto)."],
+                ],
+            ] as [String: Any],
+            "annotations": ["readOnlyHint": true, "openWorldHint": false],
+        ],
+        [
+            "name": "actividad",
+            "title": "Actividad por período",
+            "description": """
+                Resume en qué estuvo el usuario durante un período: bloques seguidos en una misma app y \
+                ventana con su hora y duración, y el tiempo total por app y por ventana (y por día si el \
+                período abarca varios). Usala para preguntas como "¿qué hice ayer a la mañana?" o "¿en \
+                qué trabajé la semana pasada?"; después, `buscar` y `ver_cuadro` dan el detalle de un bloque. \
+                Los tiempos son aproximados.
+                """,
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "desde": ["type": "string", "description": "Inicio en ISO 8601 (por ejemplo 2026-10-22 o 2026-10-22T09:00:00), \"hoy\" o \"ayer\". Por defecto, hoy."],
+                    "hasta": ["type": "string", "description": "Fin en ISO 8601. Por defecto, el final del día de `desde` si es una fecha, o ahora."],
+                    "min_minutos": ["type": "number", "minimum": 0, "description": "Duración mínima de los bloques listados (2 por defecto para un día, 10 para períodos más largos). Los totales incluyen todo."],
                 ],
             ] as [String: Any],
             "annotations": ["readOnlyHint": true, "openWorldHint": false],
@@ -118,6 +140,7 @@ public final class MCPServer {
         do {
             switch name {
             case "buscar": return textResult(try search(arguments))
+            case "actividad": return textResult(try activity(arguments))
             case "ver_cuadro": return try frame(arguments)
             case "estadisticas": return textResult(try stats())
             default: return errorResult("herramienta desconocida: \(name)")
@@ -154,6 +177,20 @@ public final class MCPServer {
             if !excerpt.isEmpty { lines.append(excerpt) }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func activity(_ arguments: [String: Any]) throws -> String {
+        let rawFrom = arguments["desde"] as? String
+        let rawTo = arguments["hasta"] as? String
+        guard let period = ActivityPeriod.resolve(from: rawFrom, to: rawTo, timeZone: timeZone) else {
+            throw ToolError(message: "período inválido: `desde` y `hasta` van en ISO 8601 (o \"hoy\", \"ayer\"), y `desde` tiene que ser anterior a `hasta` y a ahora")
+        }
+        // The frame just before the period also covers its first minutes.
+        let samples = try storage.activitySamples(from: period.from.addingTimeInterval(-ActivitySummary.defaultMaxGap), to: period.to)
+        let summary = ActivitySummary(samples: samples, from: period.from, to: period.to)
+        let minDuration = (arguments["min_minutos"] as? NSNumber).map { $0.doubleValue * 60 }
+            ?? ActivityReport.defaultMinDuration(from: period.from, to: period.to)
+        return ActivityReport.render(summary, minDuration: minDuration, timeZone: timeZone)
     }
 
     private func frame(_ arguments: [String: Any]) throws -> [String: Any] {
