@@ -109,10 +109,10 @@ final class TriggerTests: XCTestCase {
 }
 
 final class TextSelectorTests: XCTestCase {
-    func testRichAccessibilityTextSkipsOCR() {
+    func testRichAccessibilityTextSkipsOCR() async {
         let rich = String(repeating: "palabra ", count: 30)
         var ocrCalled = false
-        let result = TextSelector.choose(accessibility: rich, minAccessibilityChars: 100) {
+        let result = await TextSelector.choose(accessibility: rich, minAccessibilityChars: 100) {
             ocrCalled = true
             return "ocr"
         }
@@ -120,21 +120,22 @@ final class TextSelectorTests: XCTestCase {
         XCTAssertFalse(ocrCalled)
     }
 
-    func testThinAccessibilityFallsBackToOCR() {
-        let result = TextSelector.choose(accessibility: "OK", minAccessibilityChars: 100) {
+    func testThinAccessibilityFallsBackToOCR() async {
+        let result = await TextSelector.choose(accessibility: "OK", minAccessibilityChars: 100) {
             "Texto reconocido en un lienzo que no expone accesibilidad"
         }
         XCTAssertEqual(result.source, .ocr)
     }
 
-    func testThinAccessibilityKeptWhenOCRFails() {
+    func testThinAccessibilityKeptWhenOCRFails() async {
         struct Failure: Error {}
-        let result = TextSelector.choose(accessibility: "Hola", minAccessibilityChars: 100) { throw Failure() }
+        let result = await TextSelector.choose(accessibility: "Hola", minAccessibilityChars: 100) { throw Failure() }
         XCTAssertEqual(result, ExtractedText(text: "Hola", source: .accessibility))
     }
 
-    func testNothingFound() {
-        XCTAssertEqual(TextSelector.choose(accessibility: "  \n", minAccessibilityChars: 100) { "" }.source, .none)
+    func testNothingFound() async {
+        let result = await TextSelector.choose(accessibility: "  \n", minAccessibilityChars: 100) { "" }
+        XCTAssertEqual(result.source, .none)
     }
 
     // Shaped like Excalidraw: the toolbar is exposed, the drawing is not.
@@ -142,45 +143,57 @@ final class TextSelectorTests: XCTestCase {
                             "Text", "Eraser", "Zoom in", "Zoom out", "Undo", "Redo", "Library", "Share"]
                            + (1...6).map { "Keep selected tool active \($0)" }).joined(separator: "\n")
 
-    func testUnchangedAccessibilityAddsWhatOCRSees() {
-        let result = TextSelector.choose(accessibility: toolbar, previousAccessibility: toolbar, minAccessibilityChars: 100) {
+    func testNothingNewInTheWindowAddsWhatOCRSees() async {
+        let result = await TextSelector.choose(accessibility: toolbar, knownWords: [], minAccessibilityChars: 100) {
             "Shapes  Rectangle\nRouter de casa\nSwitch del laboratorio\nShapes"
         }
         XCTAssertEqual(result.source, .accessibilityAndOCR)
         XCTAssertEqual(result.text, toolbar + "\nRouter de casa\nSwitch del laboratorio")
     }
 
-    func testChangedAccessibilitySkipsOCR() {
+    func testNewAccessibilityTextSkipsOCR() async {
         var ocrCalled = false
-        let result = TextSelector.choose(accessibility: toolbar + "\nnuevo", previousAccessibility: toolbar,
-                                         minAccessibilityChars: 100) {
+        let result = await TextSelector.choose(accessibility: toolbar, knownWords: nil, minAccessibilityChars: 100) {
             ocrCalled = true
             return "Router de casa y switch del laboratorio"
         }
-        XCTAssertEqual(result, ExtractedText(text: toolbar + "\nnuevo", source: .accessibility))
+        XCTAssertEqual(result, ExtractedText(text: toolbar, source: .accessibility))
         XCTAssertFalse(ocrCalled)
     }
 
-    func testOCRAddingLittleKeepsAccessibilityOnly() {
-        // A document scrolled in an app that exposes all of it: OCR wraps lines differently but reads nothing new.
-        let document = "Un índice compuesto conviene cuando filtrás por varias columnas a la vez y el orden importa."
+    func testOCRMisreadingKnownTextAddsNothing() async {
+        // A chat scrolled in an app that exposes all of it: OCR wraps lines differently and misreads a few letters.
+        let chat = "Un índice compuesto conviene cuando filtrás por varias columnas a la vez y el orden importa."
             + "\n" + String(repeating: "relleno ", count: 10)
-        let result = TextSelector.choose(accessibility: document, previousAccessibility: document, minAccessibilityChars: 100) {
-            "Un índice compuesto conviene cuando\nfiltrás por  varias columnas\n12:04"
+        let result = await TextSelector.choose(accessibility: chat, knownWords: [], minAccessibilityChars: 100) {
+            "Un índice compuest0 conviene cuando\nfiltrás por varias colunmas\n12:04"
         }
-        XCTAssertEqual(result, ExtractedText(text: document, source: .accessibility))
+        XCTAssertEqual(result, ExtractedText(text: chat, source: .accessibility))
     }
 
-    func testUnchangedAccessibilitySurvivesOCRFailure() {
+    func testWordsTheWindowShowedBeforeAreNotAddedAgain() async {
+        let known = Set(TextSelector.words(in: "Router de casa\nSwitch del laboratorio"))
+        let result = await TextSelector.choose(accessibility: toolbar, knownWords: known, minAccessibilityChars: 100) {
+            "Router de casa\nSwitch del laboratorio"
+        }
+        XCTAssertEqual(result, ExtractedText(text: toolbar, source: .accessibility))
+    }
+
+    func testNothingNewSurvivesOCRFailure() async {
         struct Failure: Error {}
-        let result = TextSelector.choose(accessibility: toolbar, previousAccessibility: toolbar, minAccessibilityChars: 100) {
+        let result = await TextSelector.choose(accessibility: toolbar, knownWords: [], minAccessibilityChars: 100) {
             throw Failure()
         }
         XCTAssertEqual(result, ExtractedText(text: toolbar, source: .accessibility))
     }
 
-    func testMissingLinesIgnoreCaseSpacingAndRepeats() {
-        XCTAssertEqual(TextSelector.lines(of: "HOLA  mundo\n  Nuevo \nnuevo\n\n", missingFrom: "hola mundo"), "Nuevo")
+    func testNewLinesNeedHalfTheirWordsUnknown() {
+        let ocr = "Bastion Host privado\nhola mundo nuevo\nbastion host\n• → =\nok"
+        XCTAssertEqual(TextSelector.newLines(in: ocr, known: ["hola", "mundo"]), "Bastion Host privado")
+    }
+
+    func testWordsIgnoreCaseAndAccents() {
+        XCTAssertEqual(TextSelector.words(in: "Canción, ÍNDICE-2"), ["cancion", "indice", "2"])
     }
 
     func testMeaningfulLengthIgnoresWhitespace() {
@@ -212,20 +225,68 @@ final class OCRRegionTests: XCTestCase {
     private let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
 
     func testRetinaPointsBecomePixels() {
-        let rect = OCRRegion.pixelRect(for: CGRect(x: 100, y: 80, width: 600, height: 400), displayBounds: display,
+        let rect = OCRRegion.pixelRect(for: CGRect(x: 100, y: 80, width: 600, height: 400), in: display,
                                        imageWidth: 3024, imageHeight: 1964)
         XCTAssertEqual(rect, CGRect(x: 200, y: 160, width: 1200, height: 800))
     }
 
-    func testFramesAreClippedToTheDisplay() {
-        let rect = OCRRegion.pixelRect(for: CGRect(x: 1400, y: -50, width: 400, height: 200), displayBounds: display,
+    func testFramesAreClippedToTheBounds() {
+        let rect = OCRRegion.pixelRect(for: CGRect(x: 1400, y: -50, width: 400, height: 200), in: display,
                                        imageWidth: 1512, imageHeight: 982)
         XCTAssertEqual(rect, CGRect(x: 1400, y: 0, width: 112, height: 150))
     }
 
-    func testFramesOnAnotherDisplayAreIgnored() {
-        XCTAssertNil(OCRRegion.pixelRect(for: CGRect(x: 2000, y: 0, width: 800, height: 600), displayBounds: display,
+    func testFramesOutsideTheBoundsAreIgnored() {
+        XCTAssertNil(OCRRegion.pixelRect(for: CGRect(x: 2000, y: 0, width: 800, height: 600), in: display,
                                          imageWidth: 1512, imageHeight: 982))
+    }
+
+    func testPageInsideAWindowCapture() {
+        // A window captured on its own at 2x: the page is relative to the window, not the display.
+        let window = CGRect(x: 200, y: 100, width: 1000, height: 700)
+        let page = CGRect(x: 200, y: 180, width: 1000, height: 620)
+        XCTAssertEqual(OCRRegion.pixelRect(for: page, in: window, imageWidth: 2000, imageHeight: 1400),
+                       CGRect(x: 0, y: 160, width: 2000, height: 1240))
+    }
+}
+
+final class WindowMemoryTests: XCTestCase {
+    func testFirstReadOfAWindowIsNew() {
+        var memory = WindowMemory()
+        XCTAssertNil(memory.knownWords(ifNothingNew: "Shapes\nShare", window: "excalidraw"))
+        XCTAssertNotNil(memory.knownWords(ifNothingNew: "Share\nShapes", window: "excalidraw"))
+        XCTAssertNil(memory.knownWords(ifNothingNew: "Shapes\nShare", window: "otra"))
+    }
+
+    func testPanelsThatComeAndGoAreNotNew() {
+        // Excalidraw shows "Stroke width" only while something is selected.
+        var memory = WindowMemory()
+        _ = memory.knownWords(ifNothingNew: "Shapes\nShare", window: "w")
+        XCTAssertNil(memory.knownWords(ifNothingNew: "Shapes\nShare\nStroke width", window: "w"), "a line never seen")
+        XCTAssertNotNil(memory.knownWords(ifNothingNew: "Shapes", window: "w"))
+        XCTAssertNotNil(memory.knownWords(ifNothingNew: "Shapes\nStroke width", window: "w"))
+    }
+
+    func testRemembersStoredWords() {
+        var memory = WindowMemory()
+        _ = memory.knownWords(ifNothingNew: "Shapes", window: "w")
+        memory.remember("Shapes\nRouter de casa", window: "w")
+        XCTAssertEqual(memory.knownWords(ifNothingNew: "Shapes", window: "w"), ["shapes", "router", "de", "casa"])
+    }
+
+    func testEmptyTextIsNeverNothingNew() {
+        var memory = WindowMemory()
+        _ = memory.knownWords(ifNothingNew: "", window: "w")
+        XCTAssertNil(memory.knownWords(ifNothingNew: "", window: "w"))
+    }
+
+    func testOldWindowsAreForgotten() {
+        var memory = WindowMemory()
+        memory.maxWindows = 2
+        _ = memory.knownWords(ifNothingNew: "a", window: "1")
+        _ = memory.knownWords(ifNothingNew: "b", window: "2")
+        _ = memory.knownWords(ifNothingNew: "c", window: "3")
+        XCTAssertNil(memory.knownWords(ifNothingNew: "a", window: "1"))
     }
 }
 

@@ -6,11 +6,13 @@ import UniformTypeIdentifiers
 
 public enum CaptureError: Error, CustomStringConvertible {
     case noDisplay
+    case noWindow
     case imageEncoding(String)
 
     public var description: String {
         switch self {
         case .noDisplay: "no display available to capture"
+        case .noWindow: "focused window not found"
         case .imageEncoding(let path): "could not write image to \(path)"
         }
     }
@@ -51,6 +53,29 @@ public struct ScreenCapturer: Sendable {
         configuration.height = mode?.pixelHeight ?? display.height
         configuration.showsCursor = false
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+
+    /// Only the on-screen window of `pid` closest to `frame` (the focused window, in global points),
+    /// without notifications or other windows covering it. Returns the image and the window's frame.
+    public func captureWindow(pid: pid_t, frame: CGRect) async throws -> (image: CGImage, frame: CGRect) {
+        let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+        let candidates = content.windows.filter { $0.owningApplication?.processID == pid && $0.windowLayer == 0 }
+        func distance(_ window: SCWindow) -> CGFloat {
+            abs(window.frame.minX - frame.minX) + abs(window.frame.minY - frame.minY)
+                + abs(window.frame.width - frame.width) + abs(window.frame.height - frame.height)
+        }
+        guard let window = candidates.min(by: { distance($0) < distance($1) }) else { throw CaptureError.noWindow }
+        let display = CGMainDisplayID()
+        let scale = CGFloat(CGDisplayCopyDisplayMode(display)?.pixelWidth ?? Int(CGDisplayBounds(display).width))
+            / CGDisplayBounds(display).width
+        let configuration = SCStreamConfiguration()
+        configuration.width = Int(window.frame.width * scale)
+        configuration.height = Int(window.frame.height * scale)
+        configuration.showsCursor = false
+        configuration.ignoreShadowsSingleWindow = true
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        return (image, window.frame)
     }
 }
 

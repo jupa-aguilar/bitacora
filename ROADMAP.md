@@ -40,10 +40,16 @@ En apps que dibujan en un `<canvas>`, el árbol de accesibilidad sólo trae la i
 
 **Lo que se hizo:**
 
-- **Cuándo se hace OCR:** Bitácora recuerda el último texto accesible de cada ventana. Si la pantalla cambió pero el texto accesible es idéntico, lo que cambió no está en él. Entonces se hace OCR también y se agregan al final las líneas que la accesibilidad no tenía (`accessibility+ocr`). Una línea cuenta como conocida si aparece dentro del texto accesible, sin importar mayúsculas ni espacios, porque el OCR corta las líneas distinto. Si lo nuevo suma menos de 30 caracteres, se queda sólo con la accesibilidad.
-- **Recorte:** el OCR lee sólo la página (en navegadores y apps web) o la ventana activa, no toda la pantalla. Antes, cuando la accesibilidad traía poco texto, el OCR de Chrome leía también las pestañas y los marcadores (por ejemplo «Inbox», «My LastPass»). Ahora queda igual de limpio que la accesibilidad.
+- **Cuándo se hace OCR:** Bitácora recuerda las líneas de texto accesible que vio en cada ventana. Si la pantalla cambió pero todas las líneas actuales ya se habían visto ahí, lo que cambió no está en la accesibilidad. Entonces se hace OCR también y se agregan al final las líneas nuevas (`accessibility+ocr`). Se comparan líneas ya vistas y no el texto exacto, porque Excalidraw muestra y oculta paneles ("Stroke width", "Font family") al seleccionar.
+- **Qué se agrega:** una línea del OCR se agrega si al menos la mitad de sus palabras (de 3 letras o más) son nuevas para esa ventana, contando la accesibilidad y lo que ya se guardó antes. La búsqueda funciona por palabras, así que una línea de palabras conocidas no suma nada, y las relecturas con errores («unI el jupa-agullar») quedan afuera. Si lo nuevo suma menos de 30 caracteres, se guarda sólo la accesibilidad.
+- **Sólo la ventana:** el OCR captura la ventana activa por separado con ScreenCaptureKit, así que no entran los avisos de macOS ni otras ventanas encima. En navegadores se recorta a la página, sin pestañas ni marcadores.
 
-Falta verlo en una grabación nueva con Excalidraw.
+**Primera prueba (25/10, versión anterior):**
+
+- **En Excalidraw no se activó:** la regla exigía texto accesible idéntico, y Excalidraw lo cambia con cada selección.
+- **En ChatGPT y Claude sí se activó al desplazarse,** porque ahí el texto accesible no cambia. Agregó ruido: el aviso «App Background Activity», la barra lateral de Claude y relecturas con errores.
+- **Simulación de la versión nueva sobre esos cuadros:** el filtro por palabras descarta todas las relecturas con errores. Quedaban el aviso de macOS, que ahora no entra porque se captura sólo la ventana, y algunos botones de ChatGPT ("Ask ChatGPT", "Send"). Esos botones se agregan una sola vez por ventana, porque después ya son palabras conocidas.
+- **Pendiente:** el texto escrito en Excalidraw se veía como cuadraditos vacíos (la fuente no cargó), así que falta probarlo con texto legible.
 
 ## 3. Ráfagas mientras una app escribe sola o corre un video ✓
 
