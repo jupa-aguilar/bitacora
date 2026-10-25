@@ -8,6 +8,9 @@ let usage = """
       bitacora record [--serve] [--verbose]   Graba la pantalla (Ctrl-C para terminar)
       bitacora serve                          Sirve la API local en 127.0.0.1
       bitacora search <texto> [--app <app>] [--limit <n>]
+      bitacora actividad [desde] [hasta] [--min <minutos>]
+                                              En qué estuviste: bloques por app y ventana, y totales
+                                              (fechas ISO 8601, "hoy" o "ayer"; por defecto, hoy)
       bitacora capture                        Guarda un cuadro ahora mismo
       bitacora stats                          Resumen de lo grabado
       bitacora doctor [--request]             Revisa (o pide) los permisos de macOS
@@ -30,7 +33,7 @@ struct Arguments {
             let arg = raw[index]
             if arg.hasPrefix("--") {
                 let name = String(arg.dropFirst(2))
-                if ["app", "limit"].contains(name), index + 1 < raw.count {
+                if ["app", "limit", "min"].contains(name), index + 1 < raw.count {
                     options[name] = raw[index + 1]
                     index += 1
                 } else {
@@ -176,6 +179,25 @@ func run() async {
             ))
             if groups.isEmpty { print("Sin resultados.") }
             for group in groups { printFrame(group.frame, group: group) }
+        } catch {
+            fail("\(error)")
+        }
+        exit(0)
+
+    case "actividad", "activity":
+        let positional = Array(args.positional.dropFirst())
+        guard let period = ActivityPeriod.resolve(from: positional.first, to: positional.dropFirst().first,
+                                                  timeZone: .current) else {
+            fail("período inválido: usá fechas ISO 8601 (2026-10-23 o 2026-10-23T09:00), \"hoy\" o \"ayer\"")
+        }
+        let storage = openStorage(paths)
+        do {
+            let samples = try storage.activitySamples(from: period.from.addingTimeInterval(-ActivitySummary.defaultMaxGap),
+                                                      to: period.to)
+            let summary = ActivitySummary(samples: samples, from: period.from, to: period.to)
+            let minDuration = args.options["min"].flatMap(Double.init).map { $0 * 60 }
+                ?? ActivityReport.defaultMinDuration(from: period.from, to: period.to)
+            print(ActivityReport.render(summary, minDuration: minDuration, timeZone: .current))
         } catch {
             fail("\(error)")
         }

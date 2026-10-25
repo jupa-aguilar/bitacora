@@ -16,6 +16,7 @@ Lo que falta, en el orden recomendado. Cada punto dice por qué importa y qué s
 - [x] Ráfagas de `visual_change`: el cuadro nuevo reemplaza al anterior (ver abajo)
 - [x] Texto de lienzos con OCR, recortado a la página o la ventana (ver abajo)
 - [x] Descartar cuadros `idle` sin cambios (ver abajo)
+- [x] Resumen de actividad por período: `bitacora actividad` y la herramienta MCP `actividad`
 
 ## 1. Medir con uso real ✓
 
