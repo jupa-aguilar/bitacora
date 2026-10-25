@@ -12,6 +12,11 @@ public struct BitacoraConfig: Codable, Sendable {
     public var visualChangeThreshold: Double = 0.05
     /// Below this score an event-triggered frame is considered a duplicate, even if the window changed.
     public var duplicateThreshold: Double = 0.03
+    /// A visual check in the same window replaces the last stored frame, instead of adding one, while
+    /// the burst that frame started is younger than this many seconds. 0 = never replace.
+    public var burstWindow: TimeInterval = 120
+    /// Share (0...1) of the last stored frame's lines the new text must keep to replace it.
+    public var burstMinTextOverlap: Double = 0.9
     /// Seconds without keystrokes before a `typing_pause` trigger fires.
     public var typingPauseDelay: TimeInterval = 1.5
     /// Seconds without scrolling before a `scroll_stop` trigger fires.
@@ -54,6 +59,8 @@ public struct BitacoraConfig: Codable, Sendable {
         visualCheckInterval = try c.decodeIfPresent(TimeInterval.self, forKey: .visualCheckInterval) ?? d.visualCheckInterval
         visualChangeThreshold = try c.decodeIfPresent(Double.self, forKey: .visualChangeThreshold) ?? d.visualChangeThreshold
         duplicateThreshold = try c.decodeIfPresent(Double.self, forKey: .duplicateThreshold) ?? d.duplicateThreshold
+        burstWindow = try c.decodeIfPresent(TimeInterval.self, forKey: .burstWindow) ?? d.burstWindow
+        burstMinTextOverlap = try c.decodeIfPresent(Double.self, forKey: .burstMinTextOverlap) ?? d.burstMinTextOverlap
         typingPauseDelay = try c.decodeIfPresent(TimeInterval.self, forKey: .typingPauseDelay) ?? d.typingPauseDelay
         scrollStopDelay = try c.decodeIfPresent(TimeInterval.self, forKey: .scrollStopDelay) ?? d.scrollStopDelay
         minAccessibilityChars = try c.decodeIfPresent(Int.self, forKey: .minAccessibilityChars) ?? d.minAccessibilityChars

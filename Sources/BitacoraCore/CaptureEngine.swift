@@ -3,6 +3,8 @@ import Foundation
 
 public enum CaptureOutcome: Sendable, Equatable {
     case stored(id: Int64, trigger: TriggerKind, difference: Double, source: TextSource)
+    /// A visual check overwrote the last stored frame (same window, same text plus a little more).
+    case replaced(id: Int64, difference: Double, source: TextSource)
     case skipped(reason: String)
     case debounced
     case nothingPending
@@ -25,12 +27,13 @@ public actor CaptureEngine {
     private var pending: [Trigger] = []
     private var gate: CaptureGate
     private var comparer = FrameComparer()
-    private var lastStoredText: String?
+    private var lastStored: LastStoredFrame?
     private var lastCapture: Date?
     private var lastIdleTrigger: Date?
     private var busy = false
 
     public private(set) var storedCount = 0
+    public private(set) var replacedCount = 0
     public private(set) var skippedCount = 0
 
     private static let dayFormatter: DateFormatter = {
@@ -78,6 +81,9 @@ public actor CaptureEngine {
         case .stored(_, let kind, let difference, let source):
             storedCount += 1
             Log.info("stored frame (\(kind.rawValue), diff \(String(format: "%.3f", difference)), text: \(source.rawValue))")
+        case .replaced(let id, let difference, let source):
+            replacedCount += 1
+            Log.debug("replaced frame #\(id) (diff \(String(format: "%.3f", difference)), text: \(source.rawValue))")
         case .skipped(let reason):
             skippedCount += 1
             Log.debug("skipped \(trigger.kind.rawValue): \(reason)")
@@ -115,9 +121,11 @@ public actor CaptureEngine {
             minAccessibilityChars: config.minAccessibilityChars,
             ocr: { try ocr.recognize(image) }
         )
-        if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStoredText) {
+        if let reason = CapturePolicy.textSkipReason(trigger: trigger.kind, text: extracted.text, previousText: lastStored?.text) {
             return .skipped(reason: reason)
         }
+        let replacing = CapturePolicy.replacesLast(trigger: trigger.kind, context: context, text: extracted.text,
+                                                   last: lastStored, now: now, config: config) ? lastStored : nil
 
         let day = Self.dayFormatter.string(from: now)
         let imageURL = paths.frames
@@ -129,7 +137,7 @@ public actor CaptureEngine {
                 to: imageURL,
                 quality: config.jpegQuality
             )
-            let id = try storage.insert(NewFrame(
+            let frame = NewFrame(
                 capturedAt: now,
                 trigger: trigger.kind,
                 appName: context.appName,
@@ -140,11 +148,24 @@ public actor CaptureEngine {
                 textSource: extracted.source,
                 imagePath: imageURL.path,
                 visualDifference: difference
-            ))
+            )
+            let id: Int64
+            if let replacing {
+                id = replacing.id
+                try storage.replace(id: id, with: frame)
+                if let oldImage = replacing.imagePath { try? FileManager.default.removeItem(atPath: oldImage) }
+            } else {
+                id = try storage.insert(frame)
+            }
             comparer.setReference(thumbnail)
             gate.markCaptured(at: now)
             lastCapture = now
-            lastStoredText = extracted.text
+            lastStored = LastStoredFrame(id: id, bundleID: context.bundleID, windowTitle: context.windowTitle,
+                                         text: extracted.text, imagePath: imageURL.path,
+                                         burstStart: replacing?.burstStart ?? now)
+            if replacing != nil {
+                return .replaced(id: id, difference: difference, source: extracted.source)
+            }
             return .stored(id: id, trigger: trigger.kind, difference: difference, source: extracted.source)
         } catch {
             return .skipped(reason: "could not save frame: \(error)")
@@ -178,6 +199,46 @@ public enum CapturePolicy {
             guard !text.isEmpty, text == previousText else { return nil }
             return "same text as previous frame"
         }
+    }
+
+    /// Applied to visual checks that passed the other rules. A reply being written or a video playing
+    /// fires one visual change after another in the same window, each with almost the same text: the
+    /// newer capture overwrites the last stored frame, so the burst ends up as one frame with its final state.
+    public static func replacesLast(trigger: TriggerKind, context: WindowContext, text: String,
+                                    last: LastStoredFrame?, now: Date, config: BitacoraConfig) -> Bool {
+        guard trigger == .visualChange, let last,
+              last.bundleID == context.bundleID, last.windowTitle == context.windowTitle,
+              now.timeIntervalSince(last.burstStart) < config.burstWindow else { return false }
+        return textOverlap(of: last.text, in: text) >= config.burstMinTextOverlap
+    }
+
+    /// Share of the old text's distinct non-blank lines that are still present in the new text.
+    /// 1 means replacing the old text with the new one loses nothing.
+    public static func textOverlap(of old: String, in new: String) -> Double {
+        let oldLines = Set(old.split(separator: "\n").filter { !$0.allSatisfy(\.isWhitespace) })
+        guard !oldLines.isEmpty else { return 1 }
+        let newLines = Set(new.split(separator: "\n"))
+        return Double(oldLines.intersection(newLines).count) / Double(oldLines.count)
+    }
+}
+
+/// What the engine remembers about the last stored frame.
+public struct LastStoredFrame: Sendable, Equatable {
+    public var id: Int64
+    public var bundleID: String?
+    public var windowTitle: String?
+    public var text: String
+    public var imagePath: String?
+    /// When the frame was first stored; replacing it keeps this date.
+    public var burstStart: Date
+
+    public init(id: Int64, bundleID: String?, windowTitle: String?, text: String, imagePath: String?, burstStart: Date) {
+        self.id = id
+        self.bundleID = bundleID
+        self.windowTitle = windowTitle
+        self.text = text
+        self.imagePath = imagePath
+        self.burstStart = burstStart
     }
 }
 

@@ -96,7 +96,7 @@ public final class Storage: @unchecked Sendable {
     private let lock = NSLock()
 
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-    static let schemaVersion: Int32 = 1
+    static let schemaVersion: Int32 = 2
 
     public init(path: String) throws {
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
@@ -152,6 +152,12 @@ public final class Storage: @unchecked Sendable {
                 INSERT INTO frames_fts(frames_fts, rowid, text, app_name, window_title)
                 VALUES ('delete', old.id, old.text, old.app_name, old.window_title);
             END;
+            CREATE TRIGGER IF NOT EXISTS frames_au AFTER UPDATE OF text, app_name, window_title ON frames BEGIN
+                INSERT INTO frames_fts(frames_fts, rowid, text, app_name, window_title)
+                VALUES ('delete', old.id, old.text, old.app_name, old.window_title);
+                INSERT INTO frames_fts(rowid, text, app_name, window_title)
+                VALUES (new.id, new.text, new.app_name, new.window_title);
+            END;
 
             PRAGMA user_version = \(Self.schemaVersion);
             """)
@@ -181,6 +187,31 @@ public final class Storage: @unchecked Sendable {
             bind(statement, 10, frame.visualDifference)
             guard sqlite3_step(statement) == SQLITE_DONE else { throw lastError() }
             return sqlite3_last_insert_rowid(db)
+        }
+    }
+
+    /// Overwrites a stored frame with a newer capture of the same screen. The id and the trigger
+    /// that started the frame are kept.
+    public func replace(id: Int64, with frame: NewFrame) throws {
+        try locked {
+            let sql = """
+                UPDATE frames SET captured_at = ?1, app_name = ?2, bundle_id = ?3, window_title = ?4, url = ?5,
+                                  text = ?6, text_source = ?7, image_path = ?8, visual_difference = ?9
+                WHERE id = ?10;
+                """
+            let statement = try prepare(sql)
+            defer { sqlite3_finalize(statement) }
+            bind(statement, 1, frame.capturedAt.timeIntervalSince1970)
+            bind(statement, 2, frame.appName)
+            bind(statement, 3, frame.bundleID)
+            bind(statement, 4, frame.windowTitle)
+            bind(statement, 5, frame.url)
+            bind(statement, 6, frame.text)
+            bind(statement, 7, frame.textSource.rawValue)
+            bind(statement, 8, frame.imagePath)
+            bind(statement, 9, frame.visualDifference)
+            sqlite3_bind_int64(statement, 10, id)
+            guard sqlite3_step(statement) == SQLITE_DONE else { throw lastError() }
         }
     }
 

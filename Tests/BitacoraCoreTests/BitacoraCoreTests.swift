@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreText
 import Foundation
+import SQLite3
 import XCTest
 @testable import BitacoraCore
 
@@ -205,6 +206,41 @@ final class StorageTests: XCTestCase {
         XCTAssertEqual(try storage.frame(id: 1)?.windowTitle, "Reunión de presupuesto")
         XCTAssertNil(try storage.frame(id: 99))
         XCTAssertEqual(try storage.lastCaptureDate(), Date(timeIntervalSince1970: 1_800_000_060))
+    }
+
+    func testReplaceKeepsIdAndTriggerAndReindexesText() throws {
+        let storage = try makeStorage()
+        try storage.replace(id: 2, with: NewFrame(capturedAt: Date(timeIntervalSince1970: 1_800_000_090),
+                                                  trigger: .visualChange, appName: "Safari", windowTitle: "Documentación",
+                                                  text: "SQLite WAL y checkpoints", textSource: .accessibility,
+                                                  imagePath: "/tmp/nuevo.jpg", visualDifference: 0.2))
+        let frame = try XCTUnwrap(try storage.frame(id: 2))
+        XCTAssertEqual(frame.trigger, "click")
+        XCTAssertEqual(frame.text, "SQLite WAL y checkpoints")
+        XCTAssertEqual(frame.imagePath, "/tmp/nuevo.jpg")
+        XCTAssertEqual(frame.capturedAt, Date(timeIntervalSince1970: 1_800_000_090))
+        XCTAssertEqual(try storage.count(), 2)
+        XCTAssertEqual(try storage.search(SearchQuery(text: "checkpoints")).map(\.id), [2])
+        XCTAssertTrue(try storage.search(SearchQuery(text: "fts5")).isEmpty, "old text must leave the index")
+    }
+
+    func testVersionOneDatabaseGetsTheUpdateTrigger() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("bitacora-v1-\(UUID()).sqlite").path
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        do {
+            let storage = try Storage(path: path)
+            try storage.insert(NewFrame(capturedAt: Date(), trigger: .click, text: "texto viejo", textSource: .ocr))
+        }
+        // Simulate a database created before replacements existed.
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(path, &db), SQLITE_OK)
+        XCTAssertEqual(sqlite3_exec(db, "DROP TRIGGER frames_au; PRAGMA user_version = 1;", nil, nil, nil), SQLITE_OK)
+        sqlite3_close(db)
+
+        let storage = try Storage(path: path)
+        try storage.replace(id: 1, with: NewFrame(capturedAt: Date(), trigger: .visualChange, text: "texto nuevo", textSource: .ocr))
+        XCTAssertEqual(try storage.search(SearchQuery(text: "nuevo")).count, 1)
+        XCTAssertTrue(try storage.search(SearchQuery(text: "viejo")).isEmpty)
     }
 }
 
