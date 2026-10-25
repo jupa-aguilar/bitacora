@@ -9,13 +9,17 @@ public struct WindowContext: Sendable, Equatable {
     public var pid: pid_t?
     public var windowTitle: String?
     public var url: String?
+    /// Focused window in global points (top-left origin); picks the display to capture.
+    public var windowFrame: CGRect?
 
-    public init(appName: String? = nil, bundleID: String? = nil, pid: pid_t? = nil, windowTitle: String? = nil, url: String? = nil) {
+    public init(appName: String? = nil, bundleID: String? = nil, pid: pid_t? = nil, windowTitle: String? = nil,
+                url: String? = nil, windowFrame: CGRect? = nil) {
         self.appName = appName
         self.bundleID = bundleID
         self.pid = pid
         self.windowTitle = windowTitle
         self.url = url
+        self.windowFrame = windowFrame
     }
 
     /// Identifies "the same window" for duplicate detection.
@@ -50,6 +54,7 @@ public struct AccessibilityReader: Sendable {
         if let window = focusedWindow(pid: app.processIdentifier) {
             context.windowTitle = string(window, kAXTitleAttribute)
             context.url = string(window, kAXDocumentAttribute)
+            context.windowFrame = axRect(window)
         }
         return context
     }

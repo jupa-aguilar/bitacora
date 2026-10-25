@@ -35,6 +35,7 @@ eventos ─► cola de disparadores ─► el de mayor prioridad ─► antirreb
         ─► JPEG en disco + fila en SQLite con índice FTS5
 ```
 
+- **¿Qué pantalla?** Con varios monitores se captura la pantalla que muestra la mayor parte de la ventana activa. Si no hay ventana, la que está bajo el puntero, y si no, la principal. Las demás pantallas no se capturan en ese cuadro.
 - **¿Cambió la pantalla?** Se compara una miniatura en grises de 96 px con la del último cuadro guardado. La diferencia promedia la distancia de Hellinger entre histogramas (cambios globales) y 1 − SSIM por bloques de 8×8 (cambios locales). Por debajo de 0,03 el cuadro se descarta como duplicado, aunque haya cambiado el título de la ventana.
 - **Texto:** primero se lee el árbol de accesibilidad de la ventana activa, que da el texto exacto y es barato. En navegadores y apps web se lee sólo la página, sin pestañas, barras ni extensiones. Si trae menos de 100 caracteres (juegos, escritorio remoto) se usa OCR de Vision. Si la pantalla cambió pero todas las líneas del texto accesible ya se habían visto antes en esa ventana, lo que cambió no está en él (un dibujo en Excalidraw, un video): se hace OCR también y se agregan las líneas en las que al menos la mitad de las palabras son nuevas para esa ventana (`texto por: accessibility+ocr`). Así no se suman las relecturas con errores de texto que ya estaba. El OCR captura sólo la ventana activa, sin avisos ni otras ventanas encima, y en navegadores sólo la página.
 - **¿Texto nuevo?** Si el texto es idéntico al del último cuadro guardado, no se guarda: no agregaría nada a las búsquedas.
@@ -183,7 +184,7 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 - [x] Texto de lienzos (Excalidraw y similares) con OCR
 - [x] Descartar cuadros `idle` sin cambios
 - [x] Menos cuadros mientras una app escribe sola o corre un video
-- [ ] Varios monitores
+- [x] Varios monitores (se captura la pantalla de la ventana activa)
 - [ ] Interfaz de línea de tiempo
 - [ ] Audio y transcripción local
 

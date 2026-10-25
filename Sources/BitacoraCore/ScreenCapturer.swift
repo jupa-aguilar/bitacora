@@ -18,7 +18,48 @@ public enum CaptureError: Error, CustomStringConvertible {
     }
 }
 
-/// Takes still screenshots of the main display with ScreenCaptureKit (needs Screen Recording permission).
+/// A connected display, in the global coordinates Accessibility and Core Graphics use (points,
+/// origin at the top-left corner of the main display).
+public struct DisplayInfo: Sendable, Equatable {
+    public var id: CGDirectDisplayID
+    public var bounds: CGRect
+    /// Pixels per point (2 on Retina displays).
+    public var scale: CGFloat
+
+    public init(id: CGDirectDisplayID, bounds: CGRect, scale: CGFloat) {
+        self.id = id
+        self.bounds = bounds
+        self.scale = scale
+    }
+
+    public static func active() -> [DisplayInfo] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+        return ids.prefix(Int(count)).map { id in
+            let bounds = CGDisplayBounds(id)
+            let pixels = CGDisplayCopyDisplayMode(id)?.pixelWidth ?? Int(bounds.width)
+            return DisplayInfo(id: id, bounds: bounds, scale: bounds.width > 0 ? CGFloat(pixels) / bounds.width : 1)
+        }
+    }
+
+    /// The display the user is looking at: the one showing most of the focused `window`; without a
+    /// window on any display, the one under the `pointer`; otherwise the main display.
+    public static func choose(from displays: [DisplayInfo], window: CGRect?, pointer: CGPoint?,
+                              main: CGDirectDisplayID) -> DisplayInfo? {
+        func visibleArea(_ display: DisplayInfo) -> CGFloat {
+            guard let window else { return 0 }
+            let visible = window.intersection(display.bounds)
+            return visible.isNull ? 0 : visible.width * visible.height
+        }
+        if let best = displays.max(by: { visibleArea($0) < visibleArea($1) }), visibleArea(best) > 0 { return best }
+        if let pointer, let under = displays.first(where: { $0.bounds.contains(pointer) }) { return under }
+        return displays.first(where: { $0.id == main }) ?? displays.first
+    }
+}
+
+/// Takes still screenshots with ScreenCaptureKit (needs Screen Recording permission).
 public struct ScreenCapturer: Sendable {
     public init() {}
 
@@ -40,10 +81,9 @@ public struct ScreenCapturer: Sendable {
         }
     }
 
-    public func captureMainDisplay() async throws -> CGImage {
+    public func captureDisplay(_ info: DisplayInfo) async throws -> CGImage {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let mainID = CGMainDisplayID()
-        guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else {
+        guard let display = content.displays.first(where: { $0.displayID == info.id }) ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
         let filter = SCContentFilter(display: display, excludingWindows: [])
@@ -56,8 +96,9 @@ public struct ScreenCapturer: Sendable {
     }
 
     /// Only the on-screen window of `pid` closest to `frame` (the focused window, in global points),
-    /// without notifications or other windows covering it. Returns the image and the window's frame.
-    public func captureWindow(pid: pid_t, frame: CGRect) async throws -> (image: CGImage, frame: CGRect) {
+    /// without notifications or other windows covering it, at `scale` pixels per point.
+    /// Returns the image and the window's frame.
+    public func captureWindow(pid: pid_t, frame: CGRect, scale: CGFloat) async throws -> (image: CGImage, frame: CGRect) {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         let candidates = content.windows.filter { $0.owningApplication?.processID == pid && $0.windowLayer == 0 }
         func distance(_ window: SCWindow) -> CGFloat {
@@ -65,9 +106,6 @@ public struct ScreenCapturer: Sendable {
                 + abs(window.frame.width - frame.width) + abs(window.frame.height - frame.height)
         }
         guard let window = candidates.min(by: { distance($0) < distance($1) }) else { throw CaptureError.noWindow }
-        let display = CGMainDisplayID()
-        let scale = CGFloat(CGDisplayCopyDisplayMode(display)?.pixelWidth ?? Int(CGDisplayBounds(display).width))
-            / CGDisplayBounds(display).width
         let configuration = SCStreamConfiguration()
         configuration.width = Int(window.frame.width * scale)
         configuration.height = Int(window.frame.height * scale)
