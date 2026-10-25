@@ -4,6 +4,8 @@
   "visualCheckInterval": 3.0,
   "visualChangeThreshold": 0.05,
   "duplicateThreshold": 0.03,
+  "burstWindow": 120,
+  "burstMinTextOverlap": 0.9,
   "typingPauseDelay": 1.5,
   "scrollStopDelay": 0.8,
   "minAccessibilityChars": 100,

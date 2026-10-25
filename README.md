@@ -38,6 +38,7 @@ eventos ─► cola de disparadores ─► el de mayor prioridad ─► antirreb
 - **¿Cambió la pantalla?** Se compara una miniatura en grises de 96 px con la del último cuadro guardado. La diferencia promedia la distancia de Hellinger entre histogramas (cambios globales) y 1 − SSIM por bloques de 8×8 (cambios locales). Por debajo de 0,03 el cuadro se descarta como duplicado, aunque haya cambiado el título de la ventana.
 - **Texto:** primero se lee el árbol de accesibilidad de la ventana activa, que da el texto exacto y es barato. En navegadores y apps web se lee sólo la página, sin pestañas, barras ni extensiones. Si trae menos de 100 caracteres (lienzos, juegos, escritorio remoto) se usa OCR de Vision.
 - **¿Texto nuevo?** Si el texto es idéntico al del último cuadro guardado, no se guarda: no agregaría nada a las búsquedas.
+- **Ráfagas:** mientras una respuesta se escribe sola o corre un video, los `visual_change` llegan uno tras otro en la misma ventana y con casi el mismo texto. Si el texto nuevo conserva al menos el 90 % de las líneas del último cuadro (`burstMinTextOverlap`) y la ráfaga empezó hace menos de 2 min (`burstWindow`), el cuadro nuevo reemplaza al anterior en lugar de sumarse: queda uno solo, con el estado final, y la captura vieja se borra.
 - **Búsqueda:** SQLite FTS5 con `remove_diacritics`, así que `cancion` encuentra "canción" y las palabras se buscan por prefijo.
 
 ## Privacidad
@@ -180,7 +181,7 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 - [x] Retención automática (borrar capturas y cuadros viejos)
 - [x] Agente de inicio de sesión (`launchd`)
 - [ ] Texto de lienzos (Excalidraw y similares) con OCR
-- [ ] Menos cuadros mientras una app escribe sola
+- [x] Menos cuadros mientras una app escribe sola o corre un video
 - [ ] Varios monitores
 - [ ] Interfaz de línea de tiempo
 - [ ] Audio y transcripción local

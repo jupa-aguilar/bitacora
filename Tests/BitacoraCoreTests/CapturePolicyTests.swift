@@ -41,6 +41,81 @@ final class CapturePolicyTests: XCTestCase {
     }
 }
 
+final class BurstPolicyTests: XCTestCase {
+    private let config = BitacoraConfig()
+    private let start = Date(timeIntervalSince1970: 1_800_000_000)
+    private let chat = WindowContext(appName: "ChatGPT", bundleID: "com.openai.chat", windowTitle: "Redes")
+    private let reply = (1...10).map { "línea \($0)" }.joined(separator: "\n")
+
+    private func last(text: String) -> LastStoredFrame {
+        LastStoredFrame(id: 7, bundleID: "com.openai.chat", windowTitle: "Redes", text: text,
+                        imagePath: nil, burstStart: start)
+    }
+
+    private func replaces(_ trigger: TriggerKind = .visualChange, context: WindowContext? = nil,
+                          text: String, previous: String? = nil, after seconds: TimeInterval = 10) -> Bool {
+        CapturePolicy.replacesLast(trigger: trigger, context: context ?? chat, text: text,
+                                   last: last(text: previous ?? reply), now: start.addingTimeInterval(seconds),
+                                   config: config)
+    }
+
+    func testDefaults() {
+        XCTAssertEqual(config.burstWindow, 120)
+        XCTAssertEqual(config.burstMinTextOverlap, 0.9)
+    }
+
+    func testReplyBeingWrittenReplacesTheLastFrame() {
+        XCTAssertTrue(replaces(text: reply + "\nlínea 11"))
+    }
+
+    func testVideoWithAChangingTimestampReplacesTheLastFrame() {
+        // One line out of ten changed (the elapsed time): 90 % of the old text is still there.
+        XCTAssertTrue(replaces(text: reply.replacingOccurrences(of: "línea 10", with: "1:02 / 12:40")))
+    }
+
+    func testScreensWithoutTextReplaceEachOther() {
+        XCTAssertTrue(replaces(text: "", previous: ""))
+    }
+
+    func testLosingMoreTextAddsANewFrame() {
+        let half = (1...5).map { "línea \($0)" }.joined(separator: "\n")
+        XCTAssertFalse(replaces(text: half + "\notra cosa"))
+    }
+
+    func testOnlyVisualChecksReplace() {
+        for trigger in [TriggerKind.click, .typingPause, .scrollStop, .appSwitch, .idle, .manual] {
+            XCTAssertFalse(replaces(trigger, text: reply + "\nmás"), "\(trigger)")
+        }
+    }
+
+    func testOtherWindowAddsANewFrame() {
+        let other = WindowContext(appName: "ChatGPT", bundleID: "com.openai.chat", windowTitle: "Recetas")
+        XCTAssertFalse(replaces(context: other, text: reply))
+    }
+
+    func testBurstsAreCappedByTheWindow() {
+        XCTAssertTrue(replaces(text: reply + "\nmás", after: 119))
+        XCTAssertFalse(replaces(text: reply + "\nmás", after: 120))
+    }
+
+    func testZeroWindowNeverReplaces() {
+        var config = BitacoraConfig()
+        config.burstWindow = 0
+        XCTAssertFalse(CapturePolicy.replacesLast(trigger: .visualChange, context: chat, text: reply,
+                                                  last: last(text: reply), now: start, config: config))
+    }
+
+    func testNoPreviousFrameNeverReplaces() {
+        XCTAssertFalse(CapturePolicy.replacesLast(trigger: .visualChange, context: chat, text: reply,
+                                                  last: nil, now: start, config: config))
+    }
+
+    func testTextOverlapIgnoresBlankAndRepeatedLines() {
+        XCTAssertEqual(CapturePolicy.textOverlap(of: "a\n\n  \na\nb", in: "b\nc"), 0.5)
+        XCTAssertEqual(CapturePolicy.textOverlap(of: "", in: "algo"), 1)
+    }
+}
+
 /// Minimal in-memory accessibility tree.
 private struct FakeNode: TextTreeNode {
     var role: String?
