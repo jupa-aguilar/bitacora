@@ -179,9 +179,13 @@ BITACORA_HOME=/tmp/bitacora-dev swift run bitacora record --verbose
 - [x] Servidor MCP para que asistentes de IA consulten tu historial
 - [x] Retención automática (borrar capturas y cuadros viejos)
 - [x] Agente de inicio de sesión (`launchd`)
+- [ ] Texto de lienzos (Excalidraw y similares) con OCR
+- [ ] Menos cuadros mientras una app escribe sola
 - [ ] Varios monitores
 - [ ] Interfaz de línea de tiempo
 - [ ] Audio y transcripción local
+
+El detalle, con lo que se vio en el uso real, está en [ROADMAP.md](ROADMAP.md).
 
 ## Licencia
 
